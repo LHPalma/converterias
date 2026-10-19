@@ -707,6 +707,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   };
   const CJK = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]/;   // sem espaços entre palavras
   const RTL_CH = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/, LTR_ONLY = /^[^\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]*[A-Za-z0-9][^\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]*$/;
+  // acentos soltos (TeX desenha o acento e depois a letra): "ent˜ao" -> "então"
+  const ACC = { '˜': '\u0303', 'ˆ': '\u0302', 'ˇ': '\u030c', '˘': '\u0306', '˙': '\u0307', '˚': '\u030a', '˝': '\u030b', '¸': '\u0327', '¨': '\u0308', '¯': '\u0304', '˛': '\u0328', '´': '\u0301', '`': '\u0300' };
+  const ACC_RE = /([˜ˆˇ˘˙˚˝¸¨¯˛´`])([A-Za-zıȷ])/g, ACC_TEX_ONLY = new Set(['´', '`']), CEDILLA_OK = /[cCsStT]/;
+  const dotless = l => l === 'ı' ? 'i' : l === 'ȷ' ? 'j' : l;
+  // tex = documento TeX (acentos soltos são acentos de verdade): então ´ e ` antes de vogal também são acentos
+  const composeAcc = (str, tex) => {
+    let n = 0;
+    const out = str.replace(ACC_RE, (m, a, l) => {
+      if (ACC_TEX_ONLY.has(a) && !(tex && /[aeiouyıAEIOUY]/.test(l))) return m;
+      if ((a === '¸' || a === '˛') && !CEDILLA_OK.test(l)) return m;
+      n++; return (dotless(l) + ACC[a]).normalize('NFC');
+    });
+    return [out, n];
+  };
   const CLITIC = new Set('me te se lhe lhes nos vos o a os as lo la los las no na nas mo ma to ta'.split(' '));
   const TERMINAL = /[.!?…]["”’»)\]*]*$/;
   const LIST_START = /^(?:[•▪◦●■‣◆▸►–—-]\s|\(?\d{1,2}[.)]\s|\(?[a-h][.)]\s|\([ivx]+\)\s)/;
@@ -996,6 +1010,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     // 1) páginas -> linhas (texto posicionado) e figuras
     const pages = [], N = doc.numPages, glyphs = [], glyphIdx = new Map(), mctx = document.createElement('canvas').getContext('2d');
+    const lex = new Set();   // palavras inteiras vistas em trechos sem acento solto (para decidir "livro ´e" x "ent ˜ao")
+    const addLex = str => { if (!/[˜ˆˇ˘˙˚˝¸¨¯˛´`]/.test(str)) for (const w of str.toLowerCase().match(/\p{L}{2,}/gu) || []) lex.add(w); };
+    let texDoc = false;   // acentos soltos (˜ ˆ ¸…) nas primeiras páginas: documento TeX, onde ´ e ` também são acentos desenhados à parte
+    { let hits = 0;
+      for (let pn = 1; pn <= Math.min(N, 12); pn++) {
+        const tc0 = await (await doc.getPage(pn)).getTextContent();
+        tc0.items.forEach(i => addLex(i.str));
+        hits += (tc0.items.map(i => i.str).join('\n').match(/[˜ˆˇ˘˙˚˝¨¯˛][A-Za-zıȷ]|[A-Za-z][¸˛]|[˜ˆˇ˘˙˚˝¸¨¯˛]\s*\n/g) || []).length;
+      }
+      texDoc = hits >= 3; }
     let cover = null;
     for (let pn = 1; pn <= N; pn++) {
       say(`Lendo página ${pn} de ${N}…`); await tick();
@@ -1052,9 +1076,37 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             });
             src = out;
           }
-          raw.push({ x: m[4], y: m[5], w: it.width, size, mono, st: st0, str: (mono ? src.replace(/\t/g, '    ') : src).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/[\u21a9\u21b5\ufe0e]/g, '').replace(mono ? /[^\S ]+/g : /\s+/g, ' '), font: it.fontName });
+          let nAcc = 0;
+        if (!mono) [src, nAcc] = composeAcc(src, texDoc);
+        raw.push({ x: m[4], y: m[5], w: Math.max(0, it.width - nAcc * 0.33 * size), size, mono, st: st0, str: (mono ? src.replace(/\t/g, '    ') : src).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/[\u21a9\u21b5\ufe0e]/g, '').replace(mono ? /[^\S ]+/g : /\s+/g, ' '), font: it.fontName });
         }
-        const chars = raw.reduce((n, r) => n + r.str.trim().length, 0);
+        if (texDoc) raw.forEach(r => addLex(r.str));
+      // cedilha/ogonek soltos no começo de um trecho ("¸ ˜"): vão para a última letra do trecho anterior
+      for (let i = 1; i < raw.length; i++) {
+        const r = raw[i], pv = raw[i - 1], m = !r.mono && !pv.mono && r.str.match(/^\s*([¸˛])\s*(.*)$/);
+        if (!m || Math.abs(pv.y - r.y) > 0.4 * r.size || Math.abs(r.x - (pv.x + pv.w)) > 0.9 * r.size || !/[cCsStT]\s*$/.test(pv.str)) continue;
+        const t = pv.str.replace(/\s+$/, ''); pv.str = t.slice(0, -1) + (t.slice(-1) + ACC[m[1]]).normalize('NFC'); r.str = m[2]; r.w = Math.max(0, r.w - (pv.x + pv.w - r.x) - 0.33 * r.size); r.x = pv.x + pv.w;   // o resto do trecho continua colado à palavra
+      }
+      // acento no fim de um trecho e a letra no começo do próximo ("ent ˜" + "ao"): junta no próximo
+      for (let i = 0; i + 1 < raw.length; i++) {
+        const r = raw[i], nx = raw[i + 1], m = !r.mono && !nx.mono && r.str.match(/^(.*?)(\s*)([˜ˆˇ˘˙˚˝¸¨¯˛´`])$/);
+        if (!m || Math.abs(nx.y - r.y) > 0.4 * r.size || nx.x - (r.x + r.w) > 0.6 * r.size || !/^[A-Za-zıȷ]/.test(nx.str)) continue;
+        if (ACC_TEX_ONLY.has(m[3]) && !(texDoc && /^[aeiouyıAEIOUY]/.test(nx.str))) continue;
+        if ((m[3] === '¸' || m[3] === '˛') && !CEDILLA_OK.test(nx.str[0])) continue;
+        // o espaço antes do acento é de palavra ("O livro ´e") ou só do avanço do acento ("ent ˜ao")? sem diferença na geometria:
+        // vale se o que vem antes é uma palavra inteira que o próprio texto usa em outros lugares ("livro"), não um pedaço ("ent")
+        let space = '';
+        if (m[2]) {
+          const last = (m[1].match(/(\p{L}+)$/u) || [''])[0].toLowerCase();
+          if (last.length >= 2 ? lex.has(last) : /^[aeo]$/.test(last)) space = ' ';
+        }
+        const composed = (dotless(nx.str[0]) + ACC[m[3]]).normalize('NFC');
+        if (!space && m[2] && /^[éàáóòè]$/.test(composed) && !/^\p{L}/u.test(nx.str.slice(1))) space = ' ';   // palavra de uma letra: "é", "à"
+        r.str = m[1] + space; nx.str = composed + nx.str.slice(1);
+        r.w = Math.max(0, nx.x - r.x - (space ? 0.3 * r.size : 0));   // o trecho termina onde o próximo começa (o acento não ocupa espaço)
+      }
+      for (let i = raw.length - 1; i >= 0; i--) if (!raw[i].str.trim()) raw.splice(i, 1);   // trechos que ficaram vazios depois de mover os acentos
+      const chars = raw.reduce((n, r) => n + r.str.trim().length, 0);
 
         const figs = [];
         let full = false;
