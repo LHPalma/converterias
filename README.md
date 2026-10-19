@@ -12,6 +12,8 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **EPUB → PDF** (em lote, ZIP ou PDFs soltos) | disponível |
 | **PDF → EPUB** (em lote, ZIP ou EPUBs soltos) | disponível |
 | **Juntar** vários PDFs em um PDF, ou vários EPUBs em um EPUB | disponível |
+| **Imagens → PDF** (uma imagem por página) | disponível |
+| **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
 
 ## EPUB → PDF
 
@@ -80,6 +82,23 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 - **PDF**: as páginas são copiadas como estão (texto, imagens e links internos continuam iguais); o resultado ganha um marcador por arquivo, com os marcadores originais dentro.
 - **EPUB**: cada livro vai para a sua pasta dentro do novo EPUB, então capítulos, imagens, estilos e links ficam intactos; o sumário novo tem um item por livro com o sumário original dentro, e a capa é a do primeiro livro. Fontes ofuscadas são desfeitas (o identificador do livro muda) e EPUB com DRM é recusado.
 - PDFs com senha não são suportados. Título do arquivo final: o que você digitar ou a parte comum dos nomes.
+
+## Imagens → PDF
+
+1. Toque em **Imagens → PDF** (ou abra com `#imagens-pdf`) e escolha as imagens; dá para escolher em várias vezes. As miniaturas ajudam a ordenar com **↑** e **↓**.
+2. Escolha o tamanho da página (A4, Carta ou do tamanho da imagem) e a margem; a página acompanha a orientação de cada imagem.
+3. **Criar PDF**.
+
+- JPEG e PNG entram **sem recompressão** (PNG com transparência mantém a transparência). Fotos giradas pelo celular (EXIF) saem na posição certa; JPEG em CMYK passa pelo navegador.
+- WebP, GIF, BMP e AVIF dependem do que o navegador abre (GIF animado vira o primeiro quadro). HEIC só funciona se o navegador abrir.
+
+## PDF → Imagens
+
+1. Toque em **PDF → Imagens** (ou abra com `#pdf-imagens`) e escolha um ou mais PDFs.
+2. Escolha PNG ou JPEG, a resolução (72 a 300 dpi) e, se quiser, as páginas (`1-5, 8, 10-12`).
+3. Baixe tudo em um ZIP (ou uma a uma). Nomes: `Arquivo - 001.png`.
+
+- Resoluções altas em PDFs grandes consomem bastante memória; páginas enormes têm o tamanho reduzido para caber no limite do navegador.
 
 ## Desenvolvimento
 
