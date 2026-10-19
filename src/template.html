@@ -632,6 +632,8 @@
     const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   };
+  const CJK = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]/;   // sem espaços entre palavras
+  const RTL_CH = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/, LTR_ONLY = /^[^\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]*[A-Za-z0-9][^\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]*$/;
   const CLITIC = new Set('me te se lhe lhes nos vos o a os as lo la los las no na nas mo ma to ta'.split(' '));
   const TERMINAL = /[.!?…]["”’»)\]*]*$/;
   const LIST_START = /^(?:[•▪◦●■‣◆▸►–—-]\s|\(?\d{1,2}[.)]\s|\(?[a-h][.)]\s|\([ivx]+\)\s)/;
@@ -649,6 +651,18 @@
     it: 'di e il la che in a per un del è con non una le si da dei i al lo come più ma gli della sono ha nel anche o se alla questo tra suo loro cui dalla nella era dopo essere stato molto'.split(' '),
   };
   function guessLang(text) {
+    const letters = text.match(/\p{L}/gu) || [], share = re => letters.filter(c => re.test(c)).length / Math.max(1, letters.length);
+    if (letters.length > 20) {   // escritas que não usam o alfabeto latino
+      if (share(/[\u3040-\u30ff]/) > 0.1) return 'ja';
+      if (share(/[\uac00-\ud7af]/) > 0.3) return 'ko';
+      if (share(/[\u3400-\u9fff\uf900-\ufaff]/) > 0.3) return 'zh';
+      if (share(/[\u0400-\u04ff]/) > 0.4) return 'ru';
+      if (share(/[\u0590-\u05ff]/) > 0.4) return 'he';
+      if (share(/[\u0600-\u06ff\ufb50-\ufdff\ufe70-\ufeff]/) > 0.4) return 'ar';
+      if (share(/[\u0370-\u03ff\u1f00-\u1fff]/) > 0.4) return 'el';
+      if (share(/[\u0e00-\u0e7f]/) > 0.4) return 'th';
+      if (share(/[\u0900-\u097f]/) > 0.4) return 'hi';
+    }
     const sample = (text.toLowerCase().match(/\p{L}+/gu) || []).slice(0, 8000);
     let best = ['pt', 0];
     for (const [l, list] of Object.entries(STOPW)) {
@@ -710,25 +724,31 @@
       const run = { t: r.str, b: st.b, i: st.i, m: st.m, sup: small && y - r.y > 0.1 * size ? 1 : small && r.y - y > 0.12 * size ? -1 : 0, pn };
       const last = runs[runs.length - 1];
       const gap = prevEnd === null ? 0 : r.x - prevEnd;
-      const sp = last && gap > 0.15 * Math.min(r.size, size) && !/\s$/.test(last.t) && !/^\s/.test(run.t) && !/^[,.;:!?)\]}%»”’]/.test(run.t) && !/[(\[{«“‘]$/.test(last.t);
+      const sp = last && gap > 0.15 * Math.min(r.size, size) && !/\s$/.test(last.t) && !/^\s/.test(run.t) && !/^[,.;:!?)\]}%»”’]/.test(run.t) && !/[(\[{«“‘]$/.test(last.t) && !(CJK.test(last.t.slice(-1)) || CJK.test(run.t[0]));
       if (last && last.b === run.b && last.i === run.i && last.m === run.m && last.sup === run.sup) last.t += (sp ? ' ' : '') + run.t;
       else { if (sp) { if (!plainRun(run) || plainRun(last)) last.t += ' '; else run.t = ' ' + run.t; } runs.push(run); }
       prevEnd = r.x + r.w;
     }
-    runs.forEach(r => { if (!r.m) r.t = r.t.replace(/\s+/g, ' '); });
+    runs.forEach(r => { if (!r.m) r.t = r.t.replace(/\s+/g, ' '); r.t = r.t.normalize('NFC'); });
     if (runs.length) { runs[0].t = runs[0].t.replace(/^\s+/, ''); const lr = runs[runs.length - 1]; lr.t = lr.t.replace(/\s+$/, ''); }
     return runs.filter(r => r.t);
   }
-  function finalizeLines(groups, styleOf, pn, col) {
+  function finalizeLines(groups, pn, col, rtl) {
     const out = [];
     for (const g of groups) {
-      const items = g.items.sort((a, b) => a.x - b.x);
+      let items = g.items.sort((a, b) => a.x - b.x);
+      if (rtl) {   // coordenadas espelhadas: trechos em escrita latina/números voltam à ordem da esquerda para a direita
+        const o = []; let run = [];
+        const flush = () => { o.push(...run.reverse()); run = []; };
+        for (const r of items) { if (LTR_ONLY.test(r.str.trim())) run.push(r); else { flush(); o.push(r); } }
+        flush(); items = o;
+      }
       const bySize = new Map();
       for (const r of items) { const k = Math.round(r.size * 2) / 2; bySize.set(k, (bySize.get(k) || 0) + r.str.length); }
       const size = [...bySize.entries()].sort((a, b) => b[1] - a[1])[0][0];
       const base = items.filter(r => Math.abs(r.size - size) < 0.6);
       const y = base.length ? median(base.map(r => r.y)) : g.y;
-      const L = { pn, items, size, y, top: y - size, x0: items[0].x, x1: Math.max(...items.map(r => r.x + r.w)), col, runs: [] };
+      const L = { pn, items, size, y, top: y - size, x0: Math.min(...items.map(r => r.x)), x1: Math.max(...items.map(r => r.x + r.w)), col, runs: [], rtl: !!rtl };
       L.runs = buildRuns(items, size, y, pn);
       L.text = L.runs.map(r => r.t).join('');
       if (!L.text) continue;
@@ -748,17 +768,17 @@
   }
 
   // linhas da página na ordem de leitura (colunas da esquerda para a direita; títulos que cruzam colunas separam faixas)
-  function pageLines(raw, styleOf, pn) {
+  function pageLines(raw, pn, rtl) {
     const ps = modeOf(raw.map(r => [r.size, r.str.length]), 0.5) || 10;
     const gutters = findGutters(raw, ps);
-    if (!gutters.length) return finalizeLines(clusterLines(raw), styleOf, pn, 0);
+    if (!gutters.length) return finalizeLines(clusterLines(raw), pn, 0, rtl);
     const span = [], cols = gutters.map(() => []).concat([[]]);
     for (const r of raw) {
       if (gutters.some(g => r.x < g - 0.5 && r.x + r.w > g + 0.5)) span.push(r);
       else cols[gutters.filter(g => r.x + r.w / 2 > g).length].push(r);
     }
-    const spanLines = finalizeLines(clusterLines(span), styleOf, pn, 0).map(L => (L.span = true, L));
-    const colLines = cols.map((items, c) => finalizeLines(clusterLines(items), styleOf, pn, c));
+    const spanLines = finalizeLines(clusterLines(span), pn, 0, rtl).map(L => (L.span = true, L));
+    const colLines = cols.map((items, c) => finalizeLines(clusterLines(items), pn, c, rtl));
     const out = []; let prev = -Infinity;
     for (const S of [...spanLines, null]) {
       const bound = S ? S.y : Infinity;
@@ -773,7 +793,7 @@
   // formas desenhadas numa página (imagens e vetores), em coordenadas da página
   function drawnShapes(ol, vp, W, H, IMG_OPS, OPS, Util) {
     const PAINT = new Set([OPS.stroke, OPS.closeStroke, OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
-    const shapes = []; let hasImg = false, ctm = [1, 0, 0, 1, 0, 0], pending = null;
+    const shapes = []; let hasImg = false, bigImg = false, ctm = [1, 0, 0, 1, 0, 0], pending = null;
     const stack = [];
     const toPage = (pts) => {
       const q = pts.map(([x, y]) => vp.convertToViewportPoint(...Util.applyTransform([x, y], ctm))), xs = q.map(a => a[0]), ys = q.map(a => a[1]);
@@ -803,10 +823,11 @@
       else if (IMG_OPS.has(fn)) {
         hasImg = true;
         const b = toPage([[0, 0], [1, 0], [0, 1], [1, 1]]);
+        if ((b[2] - b[0]) * (b[3] - b[1]) >= 0.4 * W * H) bigImg = true;
         if (b[2] - b[0] > 1 && b[3] - b[1] > 1 && (b[2] - b[0]) * (b[3] - b[1]) < 0.9 * W * H) shapes.push({ b, k: 'img' });
       }
     }
-    return { shapes, hasImg };
+    return { shapes, hasImg, bigImg };
   }
 
   // figuras: agrupa imagens e desenhos vizinhos; descarta ícones, fundos, tabelas (só linhas) e caixas de texto
@@ -927,7 +948,7 @@
         return fontStyle[id];
       };
 
-      const { shapes, hasImg } = ol ? drawnShapes(ol, vp, W, H, IMG_OPS, OPS, Util) : { shapes: [], hasImg: false };
+      const { shapes, hasImg, bigImg } = ol ? drawnShapes(ol, vp, W, H, IMG_OPS, OPS, Util) : { shapes: [], hasImg: false, bigImg: false };
 
       // itens de texto em coordenadas da página (y para baixo)
       const raw = [], pageGl = [];
@@ -964,20 +985,37 @@
       let full = false;
       if (pn === 1 && wantCover) {
         cover = { pn: 1 };
-        if (chars < 400) full = true;   // capa ou folha de rosto: não repete no texto
+        if (chars < 400 && bigImg) full = true;   // capa ilustrada: o texto já está na imagem (se for só texto, ele continua no livro)
       }
       if (!full && wantImgs) {
         if (chars < 30 && (hasImg || shapes.length > 30)) { figs.push({ t: 'img', page: true, top: 0, box: [0, 0, W, H], pn }); full = true; }   // página escaneada ou só ilustração
         else for (const f of figureRegions(shapes, raw, W, H, chars)) figs.push({ t: 'img', top: f.box[1], box: f.box, alt: f.alt, pn });
       }
 
+      // escrita da direita para a esquerda: formas de apresentação árabes vêm em ordem visual; a geometria é espelhada
+      let rtlN = 0, ltrN = 0;
+      for (const r of raw) {
+        if (/[\ufb50-\ufdff\ufe70-\ufeff]/.test(r.str)) r.str = [...r.str].reverse().join('').normalize('NFKC');
+        for (const ch of r.str) if (/\p{L}/u.test(ch)) { if (RTL_CH.test(ch)) rtlN++; else ltrN++; }
+      }
+      const rtlPage = rtlN > 20 && rtlN > ltrN;
       let lines = [];
       if (!full) {
         const inFig = r => figs.some(f => r.x + r.w / 2 > f.box[0] - 2 && r.x + r.w / 2 < f.box[2] + 2 && r.y - r.size / 3 > f.box[1] - 2 && r.y - r.size / 3 < f.box[3] + 2);
-        lines = pageLines(raw.filter(r => !inFig(r)), styleOf, pn);   // texto dentro da figura já está na imagem
+        const keep = raw.filter(r => !inFig(r));   // texto dentro da figura já está na imagem
+        lines = pageLines(rtlPage ? keep.map(r => ({ ...r, x: W - (r.x + r.w) })) : keep, pn, rtlPage);
       }
       lines.forEach((L, i) => { if (L.mono && !((lines[i - 1] && lines[i - 1].mono) || (lines[i + 1] && lines[i + 1].mono) || L.text.length >= 30)) L.mono = false; });
-      pages.push({ pn, vp, W, H, lines, figs, glyphs: pageGl, cols: Math.max(1, ...lines.map(L => L.col + 1)) });
+      if (!rtlPage) {   // marcadores de lista desenhados como formas pequenas à esquerda do começo da linha
+        const dots = shapes.filter(q => q.k !== 'rule' && q.k !== 'img' && q.b[2] - q.b[0] >= 1.5 && q.b[2] - q.b[0] <= 16 && q.b[3] - q.b[1] >= 1.5 && q.b[3] - q.b[1] <= 16);
+        for (const L of lines) {
+          if (L.span || LIST_START.test(L.text)) continue;
+          if (dots.some(q => { const cx = (q.b[0] + q.b[2]) / 2, cy = (q.b[1] + q.b[3]) / 2; return cx < L.x0 - 0.3 * L.size && L.x0 - cx < 3.2 * L.size && cy > L.top - 0.1 * L.size && cy < L.y + 0.3 * L.size; })) {
+            L.runs.unshift({ t: '• ', b: false, i: false, m: false, sup: 0, pn }); L.text = '• ' + L.text;
+          }
+        }
+      }
+      pages.push({ pn, vp, W, H, lines, figs, glyphs: pageGl, rtl: rtlPage, cols: Math.max(1, ...lines.map(L => L.col + 1)) });
       page.cleanup();
     }
 
@@ -998,7 +1036,7 @@
       const running = new Set();
       for (const [k, v] of seen) {
         const ys = v.map(q => q[1]), pn = new Set(v.map(q => q[0]));
-        if (pn.size >= 3 && Math.max(...ys) - Math.min(...ys) < 4 + 0.01 * pages[0].H) running.add(k);
+        if (pn.size >= (k.includes('#') ? 2 : 3) && Math.max(...ys) - Math.min(...ys) < 4 + 0.01 * pages[0].H) running.add(k);   // com número de página no texto, 2 páginas bastam
       }
       for (const P of pages) P.lines = P.lines.filter(L => {
         const z = zone(P, L);
@@ -1075,6 +1113,7 @@
 
     // equações em destaque: linhas de fonte matemática sozinhas na linha viram imagem (com limites e índices vizinhos)
     if (wantImgs) for (const P of pages) {
+      if (P.rtl) continue;
       const ls = P.lines, st = c => P.st[c] || globAll;
       const cen = L => { const s = st(L.col), lg = L.x0 - s.Lm, rg = s.Rm - L.x1; return lg > 3 * L.size && Math.abs(lg - rg) < 2 * L.size; };
       const isEq = L => !L.span && !L.hd && L.text.length >= 2 && ((L.mathShare >= 0.5 && (L.x0 - st(L.col).Lm > 1.2 * L.size || st(L.col).Rm - L.x1 > 4 * L.size)) || (L.mathShare >= 0.25 && L.text.length <= 90 && cen(L)));
@@ -1209,6 +1248,7 @@
         const m = lastRun.t.match(/(\p{L}+)-$/u), first = (L.text.match(/^\p{L}+/u) || [''])[0];
         if (m && /^\p{Ll}/u.test(first) && !CLITIC.has(first.toLowerCase()) && (words.has((m[1] + first).toLowerCase()) || !words.has((m[1] + '-' + first).toLowerCase())))
           lastRun.t = lastRun.t.slice(0, -1);   // hifenização de fim de linha
+        else if (CJK.test(lastRun.t.slice(-1)) && CJK.test(L.text[0])) { /* ideogramas: sem espaço */ }
         else if (!/[\s/–—-]$/.test(lastRun.t) || /\s-$/.test(lastRun.t)) { if (!plainRun(lastRun) && plainRun(L.runs[0])) L.runs[0] = { ...L.runs[0], t: ' ' + L.runs[0].t }; else lastRun.t += ' '; }
       }
       for (const r of L.runs) {
@@ -1236,6 +1276,7 @@
       if (indent > 0.8 * s && !(AI > 0.8 * s && Math.abs(B.x0 - A.x0) < 0.5 * s)) return true;   // recuo de 1ª linha
       if (indent < -0.6 * s && !(A.x0 - B.x0 < 0.6 * s && AI < -0.6 * s)) return true;          // 1ª linha pendurada
       if (shortA && endA && !lower) return true;                                                // linha curta que fecha a frase
+      if (!sa.just && !lower && A.x1 < sa.Rm - 0.28 * (sa.Rm - sa.Lm)) return true;            // texto não justificado: linha bem curta também fecha o parágrafo (itens, versos)
       return false;
     };
     let noteSeq = 0;
@@ -1421,7 +1462,7 @@
       if (!curFile || (breaks_.has(i) && curFile.html.length && (curFile.size > 6000 || PART_RE.test((entries.find(e => e.at === i) || {}).title || ''))) || (curFile.size > 150000 && B.t === 'p' && !B.list)) newFile();
       if (!curFile.html.length) fileStart.add(i);
       fileOf[i] = curFile.name;
-      const id = ids.has(i) ? ` id="${ids.get(i)}"` : '';
+      const id = (ids.has(i) ? ` id="${ids.get(i)}"` : '') + (B.lines && B.lines.length && B.lines.every(L => L.rtl) ? ' dir="rtl"' : '');
       let h;
       if (B.t === 'img') {
         const sz = B.page ? '' : ` style="width:${((B.box[2] - B.box[0]) / body).toFixed(2)}em;max-width:100%"`, alt = xesc(B.alt || '');
@@ -1474,7 +1515,7 @@ ${bodyHtml}
     const navOl = list => `<ol>${list.map(n => `<li><a href="${href(n.e)}">${xesc(n.e.title)}</a>${n.kids.length ? navOl(n.kids) : ''}</li>`).join('')}</ol>`;
     let order = 0, pid = 0; const played = new Map();
     const ncx = list => list.map(n => { const h = href(n.e), o = played.get(h) || played.set(h, ++order).get(h); return `<navPoint id="n${++pid}" playOrder="${o}"><navLabel><text>${xesc(n.e.title)}</text></navLabel><content src="${h}"/>${ncx(n.kids)}</navPoint>`; }).join('');
-    const tocName = { pt: 'Sumário', en: 'Contents', es: 'Índice', fr: 'Sommaire', de: 'Inhalt', it: 'Indice' }[lang];
+    const tocName = { pt: 'Sumário', en: 'Contents', es: 'Índice', fr: 'Sommaire', de: 'Inhalt', it: 'Indice', ru: 'Содержание', zh: '目录', ja: '目次', ko: '목차', ar: 'المحتويات', he: 'תוכן עניינים', el: 'Περιεχόμενα', th: 'สารบัญ', hi: 'विषय-सूची' }[lang] || 'Contents';
 
     // 8) pacote
     const id = 'urn:uuid:' + uuid();
@@ -1543,7 +1584,7 @@ ${cover ? '<meta name="cover" content="cover-img"/>' : ''}
 <item id="css" href="style.css" media-type="text/css"/>
 ${man.join('\n')}
 </manifest>
-<spine toc="ncx">
+<spine toc="ncx"${['ar', 'he'].includes(lang) ? ' page-progression-direction="rtl"' : ''}>
 ${spine.join('\n')}
 </spine>
 </package>`);
