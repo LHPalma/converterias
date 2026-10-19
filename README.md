@@ -11,6 +11,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 |---|---|
 | **EPUB → PDF** (em lote, ZIP ou PDFs soltos) | disponível |
 | **PDF → EPUB** (em lote, ZIP ou EPUBs soltos) | disponível |
+| **Juntar** vários PDFs em um PDF, ou vários EPUBs em um EPUB | disponível |
 
 ## EPUB → PDF
 
@@ -69,6 +70,16 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 - **Sem OCR**: PDF escaneado vira só imagens. Páginas cujo texto no PDF é ilegível (fonte sem mapa Unicode, letras trocadas) também entram como imagem, com um aviso.
 - Texto que o PDF já traz errado (erros de OCR embutido, letras gregas ausentes) continua errado.
 - PDFs com senha não são suportados; livros muito grandes consomem bastante memória do aparelho.
+
+## Juntar PDFs ou EPUBs
+
+1. Toque em **Juntar** (ou abra com `#juntar` no fim do endereço) e escolha os arquivos; dá para escolher mais de uma vez, de pastas diferentes.
+2. Ajuste a ordem com **↑** e **↓** (ou **Remover**), dê um título se quiser e toque em **Juntar**.
+3. Só PDFs com PDFs, ou só EPUBs com EPUBs.
+
+- **PDF**: as páginas são copiadas como estão (texto, imagens e links internos continuam iguais); o resultado ganha um marcador por arquivo, com os marcadores originais dentro.
+- **EPUB**: cada livro vai para a sua pasta dentro do novo EPUB, então capítulos, imagens, estilos e links ficam intactos; o sumário novo tem um item por livro com o sumário original dentro, e a capa é a do primeiro livro. Fontes ofuscadas são desfeitas (o identificador do livro muda) e EPUB com DRM é recusado.
+- PDFs com senha não são suportados. Título do arquivo final: o que você digitar ou a parte comum dos nomes.
 
 ## Desenvolvimento
 

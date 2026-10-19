@@ -1,7 +1,7 @@
 {
   "name": "Converterias",
   "short_name": "Converterias",
-  "description": "Conversor de coisas, 100% local (EPUB para PDF e PDF para EPUB).",
+  "description": "Conversor de coisas, 100% local (EPUB para PDF, PDF para EPUB e juntar PDFs ou EPUBs).",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
