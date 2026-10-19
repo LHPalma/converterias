@@ -45,24 +45,30 @@ Também dá para usar o arquivo `index.html` sozinho (ele é autossuficiente): b
 ### Como usar
 
 1. Na página, toque em **PDF → EPUB** (ou abra direto com `#pdf-epub` no fim do endereço).
-2. Escolha um ou mais `.pdf` e toque em **Converter**.
+2. Escolha um ou mais `.pdf` e toque em **Converter** (dá para **Cancelar** no meio).
 3. Baixe os EPUBs (um a um, todos de uma vez ou em ZIP) ou compartilhe.
 
 ### O que ele faz
 
-- Lê o PDF com o **pdf.js** e **remonta o texto em parágrafos**: junta as linhas, desfaz a hifenização de fim de linha e reconhece recuo de parágrafo, espaçamento, citações recuadas e texto centralizado.
-- Títulos detectados pelo tamanho da fonte (e linhas isoladas em negrito); itálico, negrito e números de nota em sobrescrito são mantidos.
-- **Capítulos e sumário** a partir dos marcadores do PDF; sem marcadores, a partir dos títulos encontrados.
-- Remove **cabeçalhos, rodapés e números de página** repetidos; notas de rodapé vão para depois do parágrafo, sem cortá-lo.
-- **Imagens**: figuras são recortadas da página; páginas escaneadas ou só de ilustração entram como imagem de página inteira.
-- **Capa**: a primeira página vira a capa (se ela tiver pouco texto, não é repetida no conteúdo).
-- EPUB 3 válido (com `toc.ncx` para leitores antigos), metadados de título, autor e idioma, e o mesmo padrão de nome de arquivo do EPUB → PDF.
+PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada página com o **pdf.js** e reconstrói o livro:
+
+- **Texto corrido**: junta linhas em parágrafos usando a margem, o recuo e o espaçamento da página (e não só a linha anterior), desfaz hifenização de fim de linha e reconhece citações recuadas, listas (inclusive bolinhas desenhadas) e texto centralizado.
+- **Títulos** pelo tamanho da fonte, maiúsculas centralizadas, negrito isolado e "Capítulo …"; **itálico, negrito, sobrescrito/subscrito e código** são mantidos.
+- **Capítulos e sumário** (em árvore) a partir dos marcadores do PDF; sem marcadores, a partir do sumário impresso ou dos títulos. Páginas de sumário impresso saem do texto.
+- **Cabeçalhos, rodapés e números de página** repetidos são removidos.
+- **Notas de rodapé** viram notas do EPUB (com link), sem cortar o parágrafo.
+- **Várias colunas** são lidas na ordem certa; **tabelas** viram `<table>`; **código** (fonte monoespaçada) vira `<pre>`.
+- **Figuras** (imagens e desenhos vetoriais) viram imagens no ponto certo; **equações em destaque** e símbolos sem Unicode viram imagens que acompanham o tamanho do texto; logotipos repetidos em toda página são descartados.
+- **Capa** a partir da primeira página; **páginas escaneadas** (sem texto) entram como imagem.
+- Acentos soltos de **TeX/LaTeX** ("ent˜ao") viram letras acentuadas; escritas **da direita para a esquerda** (hebraico, árabe), chinês/japonês/coreano e cirílico funcionam; o idioma é detectado.
+- EPUB 3 válido (conferido com o EPUBCheck), com `toc.ncx` para leitores antigos e o mesmo padrão de nome de arquivo do EPUB → PDF.
 
 ### Limitações
 
-- PDF não guarda "parágrafos", só letras posicionadas: o resultado é uma reconstrução e pode errar em diagramações complicadas (várias colunas, tabelas, revistas, fórmulas).
-- PDFs escaneados sem camada de texto (sem OCR) viram só imagens.
-- PDFs com senha não são suportados.
+- É uma reconstrução: diagramações muito complicadas (revistas, quadros dentro de quadros) podem sair com parágrafos errados.
+- **Sem OCR**: PDF escaneado vira só imagens. Páginas cujo texto no PDF é ilegível (fonte sem mapa Unicode, letras trocadas) também entram como imagem, com um aviso.
+- Texto que o PDF já traz errado (erros de OCR embutido, letras gregas ausentes) continua errado.
+- PDFs com senha não são suportados; livros muito grandes consomem bastante memória do aparelho.
 
 ## Desenvolvimento
 

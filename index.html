@@ -691,7 +691,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   // ---------- conversão PDF -> EPUB ----------
-  const xesc = s => esc(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '');   // sem controles nem metades de par substituto (XML inválido)
+  const xesc = s => esc(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])/g, '').replace(/(^|[^\ud800-\udbff])[\udc00-\udfff]/g, '$1');   // sem controles nem metades de par substituto (XML inválido)
   const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return b[b.length >> 1]; };
   const modeOf = (pairs, bin) => {   // moda ponderada de [valor, peso]; devolve a média dos valores da faixa vencedora
     const h = new Map();
@@ -1040,7 +1040,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
               n: name || id,
               b: !!(fo && (fo.bold || fo.black)) || /bold|black|heavy|semibold|demi/i.test(name),
               i: !!(fo && fo.italic) || /italic|oblique|-it$|kursiv/i.test(name),
-              x: /(?:CMMI|CMSY|CMEX|CMMIB|CMBSY|MSAM|MSBM|MTMI|MTSY|MTEX|MTSYN|MTEXTRA|MathematicalPi|Symbol|STIX.{0,12}Math|Cambria.?Math|LMMath|Math\d*)\d*$/i.test(name.replace(/^[A-Z]{6}\+/, '')),
+              x: /CMMI|CMSY|CMEX|CMBSY|MSAM|MSBM|MTMI|MTSY|MTEX|MTSYN|MTEXTRA|MathematicalPi|^(?:[A-Z]{6}\+)?Symbol|STIX.{0,12}Math|Cambria.?Math|LMMath|LMMI|LMSY|LMEX|EUFM|EUSM|EURM|RSFS|MnSymbol|Latin ?Modern ?Math|Asana.?Math|XITS.?Math|TeXGyre.{0,16}Math|(?:^|\+)(?:txmi|txsy|pxmi|pxsy|zmmi|zmsy)/i.test(name),
               m: !!(fo && (fo.isMonospace || fo.fallbackName === 'monospace')) || /mono|courier|consol|menlo|monaco|typewriter|cmtt|lucida console|inconsolata|source ?code|fira ?code|\bcode\b/i.test(name),
             };
           }
@@ -1176,7 +1176,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // 3) cabeçalhos, rodapés e números de página repetidos
     if (dropHf && N > 1) {
       const key = L => L.text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
-      const zone = (P, L) => L.y < P.H * 0.1 ? 't' : L.top > P.H * 0.9 ? 'b' : null;
+      // cabeçalho/rodapé: perto da borda da página ou as primeiras/últimas linhas do texto (páginas com margem grande)
+      const edge = (P, L) => { const i = P.lines.indexOf(L), n = P.lines.length; return i >= 0 && n > 4 && cls(L) !== 'h' ? (i < 2 ? 't' : i >= n - 2 ? 'b' : null) : null; };
+      const zone = (P, L) => L.y < P.H * 0.1 ? 't' : L.top > P.H * 0.9 ? 'b' : edge(P, L);
       const seen = new Map();   // zona+texto -> posições verticais onde apareceu
       for (const P of pages) for (const L of P.lines) { const z = zone(P, L); if (z) { const k = z + key(L); (seen.get(k) || seen.set(k, []).get(k)).push([P.pn, z === 't' ? L.y : P.H - L.y]); } }
       const running = new Set();
@@ -1264,7 +1266,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const cen = L => { const s = st(L.col), lg = L.x0 - s.Lm, rg = s.Rm - L.x1; return lg > 3 * L.size && Math.abs(lg - rg) < 2 * L.size; };
       const numbered = L => /\([A-Za-z]?\d+(?:\.\d+)+\)\s*$/.test(L.text) && L.text.length <= 110 && L.x0 - st(L.col).Lm > 1.2 * L.size;   // "... (3.6.11)"
       const isEq = L => !L.span && !L.hd && L.text.length >= 2 && (numbered(L) || (L.mathShare >= 0.5 && (L.x0 - st(L.col).Lm > 1.2 * L.size || st(L.col).Rm - L.x1 > 4 * L.size)) || (L.mathShare >= 0.25 && L.text.length <= 90 && cen(L)));
-      const eq = ls.map((L, i) => isEq(L) ? i : -1).filter(i => i >= 0);
+      // limites de somatório/integral colados numa linha de texto são matemática "em linha", não equação em destaque
+      const beside = L => ls.some(Q => Q !== L && Q.col === L.col && !Q.span && Q.text.length >= 30 && Q.mathShare < 0.3 && Math.abs(Q.y - L.y) < 0.75 * st(L.col).pitch && Q.x0 < L.x1 && Q.x1 > L.x0);
+      const eq = ls.map((L, i) => isEq(L) && !beside(L) ? i : -1).filter(i => i >= 0);
       if (!eq.length) continue;
       const take = new Set(eq);
       ls.forEach((L, i) => {
@@ -1596,8 +1600,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     try { info = (await doc.getMetadata()).info || {}; } catch (e) {}
     const clean = v => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
     let title = clean(info.Title);
-    if (!title || title.length < 2 || /^(microsoft (word|powerpoint) - |untitled|sem t[ií]tulo)|\.(docx?|pdf|indd|tex|dvi|qxd|odt|rtf)$/i.test(title))
-      title = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+    if (!title || title.length < 2 || /^(microsoft (word|powerpoint) - |untitled|sem t[ií]tulo)|\.(docx?|pdf|indd|tex|dvi|qxd|odt|rtf)$/i.test(title)) {
+      // sem título nos metadados: a maior fonte das primeiras páginas, senão o nome do arquivo
+      let best = null;
+      for (const P of pages.slice(0, 3)) for (const L of P.lines) if (L.size >= 1.3 * body && (!best || L.size > best.size + 0.5)) best = L;
+      let cand = '';
+      if (best) {
+        const P = pages[best.pn - 1], at = P.lines.indexOf(best), grp = [best];
+        for (let k = at + 1; k < P.lines.length && grp.length < 3 && Math.abs(P.lines[k].size - best.size) < 0.6 && P.lines[k].y - P.lines[k - 1].y < 2.2 * best.size; k++) grp.push(P.lines[k]);
+        cand = grp.map(L => L.text).join(' ').replace(/\uFFFC\d+\uFFFC/g, '').replace(/\s+/g, ' ').trim();
+      }
+      const wc = cand.split(' ').length;
+      title = cand && wc >= 1 && wc <= 14 && /\p{L}{3}/u.test(cand) && !/^(sum[áa]rio|[ií]ndice|contents|cap[íi]tulo|chapter|resumo|abstract|\d+)$/i.test(cand) ? cand : file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+    }
     const authors = clean(info.Author) ? cleanAuthors(clean(info.Author)) : [];
     const lang = guessLang(' ' + flat().slice(0, 3000).map(L => L.text).join(' ') + ' ');
 
