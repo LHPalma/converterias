@@ -984,7 +984,10 @@
           if (!it.str || !it.str.trim()) continue;
           const m = Util.transform(vp.transform, it.transform);
           const size = Math.hypot(m[2], m[3]);
-          if (size < 1 || Math.abs(m[1]) > 0.05 * Math.abs(m[0]) || m[0] <= 0) continue;   // ignora texto girado
+          if (size < 1) continue;
+          const dl = Math.hypot(m[0], m[1]) || 1;   // direção do texto: 0 (normal), 90 (descendo), 180 (de cabeça para baixo), 270 (subindo); outras inclinações são ignoradas
+          const ang = Math.abs(m[1]) < 0.05 * dl ? (m[0] > 0 ? 0 : 180) : Math.abs(m[0]) < 0.05 * dl ? (m[1] > 0 ? 90 : 270) : -1;
+          if (ang < 0) continue;
           const st0 = styleOf(it.fontName), mono = st0.m;
           let src = it.str;
           if (wantImgs && /[\u0001-\u0008\u000e-\u001f]/.test(src)) {   // glifo sem Unicode (símbolo matemático, marcador): vira uma imagem pequena do próprio glifo
@@ -1007,9 +1010,21 @@
           }
           let nAcc = 0;
         if (!mono) [src, nAcc] = composeAcc(src, texDoc);
-        raw.push({ x: m[4], y: m[5], w: Math.max(0, it.width - nAcc * 0.33 * size), size, mono, st: st0, str: (mono ? src.replace(/\t/g, '    ') : src).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/[\u21a9\u21b5\ufe0e]/g, '').replace(mono ? /[^\S ]+/g : /\s+/g, ' '), font: it.fontName });
+        raw.push({ ang, x: m[4], y: m[5], w: Math.max(0, it.width - nAcc * 0.33 * size), size, mono, st: st0, str: (mono ? src.replace(/\t/g, '    ') : src).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/[\u21a9\u21b5\ufe0e]/g, '').replace(mono ? /[^\S ]+/g : /\s+/g, ' '), font: it.fontName });
         }
-        if (texDoc) raw.forEach(r => addLex(r.str));
+        // página inteira girada (tabela em paisagem, digitalização de lado): usa a orientação dominante e endireita as coordenadas
+      let pageRot = 0, WW = W, HH = H;
+      { const by = { 0: 0, 90: 0, 180: 0, 270: 0 }; for (const r of raw) by[r.ang] += r.str.length;
+        pageRot = +Object.entries(by).sort((a, b) => b[1] - a[1])[0][0];
+        for (let i = raw.length - 1; i >= 0; i--) if (raw[i].ang !== pageRot) raw.splice(i, 1);
+        if (pageRot) {
+          for (const r of raw) {
+            const px = r.x, py = r.y;
+            if (pageRot === 90) { r.x = py; r.y = W - px; } else if (pageRot === 270) { r.x = H - py; r.y = px; } else { r.x = W - px; r.y = H - py; }
+          }
+          if (pageRot !== 180) { WW = H; HH = W; }
+        } }
+      if (texDoc) raw.forEach(r => addLex(r.str));
       // cedilha/ogonek soltos no começo de um trecho ("¸ ˜"): vão para a última letra do trecho anterior
       for (let i = 1; i < raw.length; i++) {
         const r = raw[i], pv = raw[i - 1], m = !r.mono && !pv.mono && r.str.match(/^\s*([¸˛])\s*(.*)$/);
@@ -1045,7 +1060,7 @@
         }
         if (!full && wantImgs) {
           if (chars < 30 && (hasImg || shapes.length > 30)) { figs.push({ t: 'img', page: true, top: 0, box: [0, 0, W, H], pn }); full = true; }   // página escaneada ou só ilustração
-          else for (const f of figureRegions(shapes, raw, W, H, chars)) figs.push({ t: 'img', top: f.box[1], box: f.box, alt: f.alt, pn });
+          else if (!pageRot) for (const f of figureRegions(shapes, raw, W, H, chars)) figs.push({ t: 'img', top: f.box[1], box: f.box, alt: f.alt, pn });
         if (figs.length) { const gs = findGutters(raw, modeOf(raw.map(r => [r.size, r.str.length]), 0.5) || 10); for (const f of figs) f.col = (f.box[2] - f.box[0]) > 0.6 * (W - 20) ? 0 : gs.filter(g => (f.box[0] + f.box[2]) / 2 > g).length; }
         }
 
@@ -1060,7 +1075,7 @@
         if (!full) {
           const inFig = r => figs.some(f => r.x + r.w / 2 > f.box[0] - 2 && r.x + r.w / 2 < f.box[2] + 2 && r.y - r.size / 3 > f.box[1] - 2 && r.y - r.size / 3 < f.box[3] + 2);
           const keep = raw.filter(r => !inFig(r));   // texto dentro da figura já está na imagem
-          lines = pageLines(rtlPage ? keep.map(r => ({ ...r, x: W - (r.x + r.w) })) : keep, pn, rtlPage);
+          lines = pageLines(rtlPage ? keep.map(r => ({ ...r, x: WW - (r.x + r.w) })) : keep, pn, rtlPage);
         }
         lines.forEach((L, i) => { if (L.mono && !((lines[i - 1] && lines[i - 1].mono) || (lines[i + 1] && lines[i + 1].mono) || L.text.length >= 30)) L.mono = false; });
         if (!rtlPage) {   // marcadores de lista desenhados como formas pequenas à esquerda do começo da linha
@@ -1072,7 +1087,7 @@
             }
           }
         }
-        pages.push({ pn, vp, W, H, lines, figs, glyphs: pageGl, rtl: rtlPage, cols: Math.max(1, ...lines.map(L => L.col + 1)) });
+        pages.push({ pn, vp, W: WW, H: HH, lines, figs, glyphs: pageGl, rtl: rtlPage, cols: Math.max(1, ...lines.map(L => L.col + 1)) });
         page.cleanup();
       } catch (e) {   // página com defeito: segue sem ela
         if (/cancelad/i.test(e && e.message)) throw e;
@@ -1169,7 +1184,6 @@
       P.st = [];
       for (let c = 0; c < Math.max(1, P.cols); c++) P.st[c] = stat(P.lines.filter(L => L.col === c && !L.span), glob.get(P.pn % 2 + '|' + c) || globAll) || globAll;
     }
-    const pitch = median(pages.flatMap(P => P.st.map(s => s.pitch))) || body * 1.2;
     // títulos do tamanho do texto: maiúsculas/versaletes centralizados, negrito isolado ou "Capítulo …"
     const centeredL = L => { const s = pages[L.pn - 1].st[L.col] || globAll, lg = L.x0 - s.Lm, rg = s.Rm - L.x1; return lg > 0.6 * L.size && Math.abs(lg - rg) < 1.2 * L.size; };
     for (const P of pages) P.lines.forEach((L, i) => {
@@ -1518,7 +1532,6 @@
     entries = entries.filter((e, i) => !(i && entries[i - 1].at === e.at && norm(entries[i - 1].title) === norm(e.title)));
 
     // quais entradas abrem um arquivo novo: o nível mais raso que dê capítulos de tamanho razoável; "Parte/Livro" sempre abre
-    const secChars = i => { let n = 0; for (let k = i; k < blocks.length && (k === i || !entries.some(e => e.at === k)); k++) n += textOf(blocks[k]).length; return n; };
     const total = blocks.reduce((n, B) => n + textOf(B).length, 0);
     let splitLvl = 0;
     for (let l = 0; l <= 3; l++) { const c = entries.filter(e => e.level <= l).length; splitLvl = l; if (c >= 2 && total / c <= 60000) break; }
