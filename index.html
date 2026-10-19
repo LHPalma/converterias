@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Converterias</title>
-<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB e juntar PDFs ou EPUBs).">
+<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB, juntar PDFs ou EPUBs e imagens para PDF e vice-versa).">
 <meta name="theme-color" content="#2f6fed">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -36,15 +36,16 @@
   #list { list-style:none; margin:12px 0 0; padding:0; }
   #list li { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; font-size:.85rem; word-break:break-word; }
   #list .n { display:block; font-weight:600; }
+  #list li::after { content:''; display:block; clear:both; } #list .th { float:left; width:44px; height:44px; object-fit:cover; border-radius:6px; margin-right:10px; }
   #list .s { color:var(--muted); }
   #list .s.ok { color:#2a8a3e; } #list .s.err { color:#d33; }
   #list a { color:var(--accent); font-weight:600; margin-left:8px; }
   #outBtns { display:none; margin-top:12px; } #outBtns button { margin-bottom:8px; }
   button.alt { background:transparent; color:var(--accent); border:2px solid var(--accent); }
   small { color:var(--muted); display:block; margin-top:14px; font-size:.8rem; }
-  .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
   #list .mv { display:flex; gap:6px; margin-top:6px; } #list .mv button { width:auto; padding:4px 12px; font-size:.9rem; background:transparent; color:var(--accent); border:1px solid var(--accent); }
-  .tabs button { padding:10px; background:transparent; color:var(--accent); border:2px solid var(--accent); }
+  .tabs button { flex:1 1 28%; padding:10px; background:transparent; color:var(--accent); border:2px solid var(--accent); }
   .tabs button.on { background:var(--accent); color:#fff; }
 </style>
 </head>
@@ -57,6 +58,8 @@
     <button type="button" data-mode="e2p" class="on">EPUB → PDF</button>
     <button type="button" data-mode="p2e">PDF → EPUB</button>
     <button type="button" data-mode="merge">Juntar</button>
+    <button type="button" data-mode="i2p">Imagens → PDF</button>
+    <button type="button" data-mode="p2i">PDF → Imagens</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -91,6 +94,29 @@
     <label for="mTitle">Título do arquivo final (opcional)</label>
     <input id="mTitle" type="text" placeholder="Se vazio, uso a parte comum dos nomes">
     <small style="margin-top:8px">Junte só PDFs ou só EPUBs. A ordem é a da lista: use ↑ e ↓ para mudar.</small>
+  </div>
+
+  <div class="card" id="optI2P" hidden>
+    <label for="iTitle">Título do PDF (opcional)</label>
+    <input id="iTitle" type="text" placeholder="Se vazio, uso o nome das imagens">
+    <div class="row">
+      <div><label for="iSize">Tamanho da página</label>
+        <select id="iSize"><option value="A4">A4</option><option value="letter">Carta</option><option value="fit">Do tamanho da imagem</option></select></div>
+      <div><label for="iMargin">Margem</label>
+        <select id="iMargin"><option value="0">Nenhuma</option><option value="10">Pequena</option><option value="20">Média</option></select></div>
+    </div>
+    <small style="margin-top:8px">Cada imagem vira uma página, na ordem da lista (use ↑ e ↓). JPEG e PNG entram sem perda; outros formatos passam pelo navegador.</small>
+  </div>
+
+  <div class="card" id="optP2I" hidden>
+    <div class="row">
+      <div><label for="xFmt">Formato</label>
+        <select id="xFmt"><option value="png">PNG (sem perda)</option><option value="jpg">JPEG (menor)</option></select></div>
+      <div><label for="xDpi">Resolução</label>
+        <select id="xDpi"><option value="72">72 dpi (tela)</option><option value="100">100 dpi</option><option value="150" selected>150 dpi</option><option value="200">200 dpi</option><option value="300">300 dpi (impressão)</option></select></div>
+    </div>
+    <label for="xPages">Páginas (opcional)</label>
+    <input id="xPages" type="text" placeholder="Todas. Ou: 1-5, 8, 10-12" autocomplete="off">
   </div>
 
   <button id="go" disabled>Converter</button>
@@ -187,16 +213,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const $ = id => document.getElementById(id);
   const fileEl = $('file'), go = $('go'), statusEl = $('status'), listEl = $('list'),
         outBtns = $('outBtns'), zipBtn = $('zipBtn'), sepBtn = $('sepBtn'), shareBtn = $('shareBtn');
-  let files = [], results = [], zipUrl = null, items = [], busy = false;
+  let files = [], results = [], thumbs = [], zipUrl = null, items = [], busy = false;
   const MODES = {
     e2p: { pick: 'Toque para escolher um ou mais .epub', accept: '.epub,application/epub+zip', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Os PDFs são gerados direto no app (sem tela de impressão), com as margens e o tamanho de página escolhidos. Nome do arquivo: Título em Title Case - Subtítulo (Autor). Se o Chrome perguntar, permita vários downloads.' },
     p2e: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'epub', mime: 'application/epub+zip', many: 'EPUBs',
            note: 'O texto do PDF é remontado em parágrafos, com títulos, itálico, negrito, sumário (dos marcadores do PDF ou dos títulos) e imagens. Funciona melhor com livros e textos corridos; PDFs escaneados viram páginas em imagem. Nome do arquivo: Título em Title Case - Subtítulo (Autor). Se o Chrome perguntar, permita vários downloads.' },
+    i2p: { pick: 'Toque para escolher as imagens (JPG, PNG, WebP…)', accept: 'image/*,.jpg,.jpeg,.png,.webp,.gif,.bmp,.avif', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
+           note: 'Junta imagens em um PDF, uma por página, na ordem da lista. JPEG e PNG entram sem recompressão; fotos giradas pelo celular (EXIF) saem na posição certa. Dá para escolher imagens em várias vezes.' },
+    p2i: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'png', mime: 'image/png', many: 'imagens',
+           note: 'Cada página do PDF vira uma imagem, nomeada Arquivo - 001.png. Com mais de uma imagem você baixa tudo em um ZIP. Resoluções altas em PDFs grandes consomem bastante memória do aparelho.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
              note: 'Junta vários PDFs em um PDF, ou vários EPUBs em um EPUB, na ordem da lista. O PDF ganha um marcador por arquivo (com os marcadores originais dentro); o EPUB ganha um sumário com um item por livro. Dá para escolher arquivos de pastas diferentes em várias vezes.' },
   };
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : 'e2p';
+  const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : 'e2p';
 
   let cancelled = false;
   const say = (msg, err) => { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; };
@@ -204,8 +235,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   function renderList() {
-    listEl.innerHTML = files.map((f, i) => `<li><span class="n">${esc(f.name)}</span><span class="s">${mode === 'merge' ? `${i + 1}º · ${(f.size / 1048576).toFixed(1)} MB` : 'Na fila'}</span>` +
-      (mode === 'merge' ? `<div class="mv"><button type="button" data-mv="${i}" data-d="-1"${i ? '' : ' disabled'}>↑</button><button type="button" data-mv="${i}" data-d="1"${i < files.length - 1 ? '' : ' disabled'}>↓</button><button type="button" data-mv="${i}" data-d="0">Remover</button></div>` : '') + '</li>').join('');
+    thumbs.forEach(u => URL.revokeObjectURL(u)); thumbs = [];
+    listEl.innerHTML = files.map((f, i) => {
+      if (mode === 'i2p') thumbs.push(URL.createObjectURL(f));
+      return `<li>${mode === 'i2p' ? `<img class="th" src="${thumbs[i]}" alt="" loading="lazy" decoding="async">` : ''}<span class="n">${esc(f.name)}</span><span class="s">${ordered(mode) ? `${i + 1}º · ${(f.size / 1048576).toFixed(1)} MB` : 'Na fila'}</span>` +
+      (ordered(mode) ? `<div class="mv"><button type="button" data-mv="${i}" data-d="-1"${i ? '' : ' disabled'}>↑</button><button type="button" data-mv="${i}" data-d="1"${i < files.length - 1 ? '' : ' disabled'}>↓</button><button type="button" data-mv="${i}" data-d="0">Remover</button></div>` : '') + '</li>';
+    }).join('');
     items = [...listEl.children];
   }
   const setItem = (i, text, cls, dl) => {
@@ -230,13 +265,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     showFiles();
   };
   fileEl.addEventListener('change', () => {
-    if (mode !== 'merge') return pickFiles(fileEl.files);
+    if (!ordered(mode)) return pickFiles(fileEl.files);
     files = files.concat([...fileEl.files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })));   // juntar acumula as escolhas
     fileEl.value = ''; showFiles();
   });
   listEl.addEventListener('click', e => {
     const b = e.target.closest('button[data-mv]');
-    if (!b || busy || mode !== 'merge') return;
+    if (!b || busy || !ordered(mode)) return;
     const i = +b.dataset.mv, d = +b.dataset.d;
     if (!d) files.splice(i, 1);
     else if (files[i + d]) [files[i], files[i + d]] = [files[i + d], files[i]];
@@ -246,15 +281,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e'; $('optMerge').hidden = m !== 'merge';
-    go.textContent = m === 'merge' ? 'Juntar' : 'Converter';
+    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i';
+    go.textContent = m === 'merge' ? 'Juntar' : m === 'i2p' ? 'Criar PDF' : 'Converter';
     fileEl.accept = MODES[m].accept; fileEl.value = '';
     $('note').textContent = MODES[m].note;
     files = []; showFiles();
   };
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -1013,8 +1048,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   async function pdfToEpub(file, say) {
     say('Lendo o arquivo…'); await tick();
-    if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
-      pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([$('pdfWorker').textContent], { type: 'text/javascript' }));
+    initPdfjs();
     let doc;
     try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
     catch (e) { throw new Error(e && e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'Não parece um PDF válido.'); }
@@ -1856,7 +1890,7 @@ ${spine.join('\n')}
   }
 
   // ---------- juntar PDFs ou EPUBs ----------
-  const stem = f => f.name.replace(/\.(pdf|epub)$/i, '');
+  const stem = f => f.name.replace(/\.(pdf|epub|jpe?g|png|webp|gif|bmp|avif)$/i, '');
   async function kindOf(f) {
     const head = new Uint8Array(await f.slice(0, 1024).arrayBuffer());
     const s = String.fromCharCode(...head);
@@ -1875,8 +1909,7 @@ ${spine.join('\n')}
   }
 
   async function pdfOutline(bytes, count) {   // marcadores do PDF: [{ title, page, items }]
-    if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
-      pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([$('pdfWorker').textContent], { type: 'text/javascript' }));
+    initPdfjs();
     let doc;
     try {
       doc = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise;
@@ -2112,6 +2145,153 @@ ${spine.join('\n')}
     return { bytes, chapters: spine.length, title, authors };
   }
 
+  // ---------- imagens <-> PDF ----------
+  const initPdfjs = () => {
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
+      pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([$('pdfWorker').textContent], { type: 'text/javascript' }));
+  };
+  const toBlob = (cv, type, q) => new Promise(r => cv.toBlob(r, type, q));
+
+  function jpegInfo(b) {   // componentes de cor e orientação EXIF de um JPEG
+    let comps = 3, orient = 1;
+    for (let i = 2; i + 4 < b.length;) {
+      if (b[i] !== 0xFF) { i++; continue; }
+      const m = b[i + 1];
+      if (m === 0xFF) { i++; continue; }
+      if (m === 0xD8 || (m >= 0xD0 && m <= 0xD7) || m === 0x01) { i += 2; continue; }
+      const len = (b[i + 2] << 8) | b[i + 3];
+      if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) { comps = b[i + 9]; break; }
+      if (m === 0xDA) break;
+      if (m === 0xE1 && b[i + 4] === 0x45 && b[i + 5] === 0x78 && b[i + 6] === 0x69 && b[i + 7] === 0x66) {   // "Exif"
+        const t = i + 10, le = b[t] === 0x49, u16 = o => le ? b[o] | (b[o + 1] << 8) : (b[o] << 8) | b[o + 1];
+        const u32 = o => le ? (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0 : ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
+        const ifd = t + u32(t + 4), n = u16(ifd);
+        for (let k = 0; k < n && ifd + 14 + k * 12 < b.length; k++) if (u16(ifd + 2 + k * 12) === 0x0112) orient = u16(ifd + 10 + k * 12);
+      }
+      i += 2 + len;
+    }
+    return { comps, orient };
+  }
+
+  async function imageForPdf(pdf, file) {   // devolve a imagem já embutida no PDF
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const jpg = bytes[0] === 0xFF && bytes[1] === 0xD8, png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+    if (jpg) { const { comps, orient } = jpegInfo(bytes); if (comps !== 4 && orient <= 1) return pdf.embedJpg(bytes); }
+    else if (png) { try { return await pdf.embedPng(bytes); } catch (e) { /* PNG fora do comum: passa pelo canvas */ } }
+    let bmp;
+    try { bmp = await createImageBitmap(new Blob([bytes]), { imageOrientation: 'from-image' }); }
+    catch (e) { throw new Error(`${file.name}: formato de imagem que o navegador não abre.`); }
+    const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
+    const cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0); bmp.close();
+    let alpha = false;
+    if (!jpg) {
+      const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+      for (let k = 3; k < d.length; k += 4) if (d[k] < 255) { alpha = true; break; }
+    }
+    if (alpha) return pdf.embedPng(new Uint8Array(await (await toBlob(cv, 'image/png')).arrayBuffer()));
+    const flat = document.createElement('canvas'); flat.width = cv.width; flat.height = cv.height;
+    const fx = flat.getContext('2d'); fx.fillStyle = '#fff'; fx.fillRect(0, 0, flat.width, flat.height); fx.drawImage(cv, 0, 0);
+    return pdf.embedJpg(new Uint8Array(await (await toBlob(flat, 'image/jpeg', 0.92)).arrayBuffer()));
+  }
+
+  async function imagesToPdf(list, title, say) {
+    const { PDFDocument } = PDFLib;
+    const out = await PDFDocument.create();
+    const size = $('iSize').value, mar = +$('iMargin').value * MM;
+    for (let i = 0; i < list.length; i++) {
+      say(`Imagem ${i + 1} de ${list.length}…`); setItem(i, 'Lendo…'); await tick();
+      const img = await imageForPdf(out, list[i]);
+      let [pw, ph] = size === 'fit' ? [img.width * 0.75 + 2 * mar, img.height * 0.75 + 2 * mar] : PAGES[size];
+      if (size !== 'fit' && (img.width > img.height) !== (pw > ph)) [pw, ph] = [ph, pw];   // a página acompanha a orientação da imagem
+      const k = Math.min((pw - 2 * mar) / img.width, (ph - 2 * mar) / img.height), w = img.width * k, h = img.height * k;
+      out.addPage([pw, ph]).drawImage(img, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
+      setItem(i, `✓ ${img.width}×${img.height}`, 'ok');
+    }
+    out.setTitle(title); out.setProducer('Converterias'); out.setCreator('Converterias');
+    say('Gerando o PDF…'); await tick();
+    return { bytes: await out.save(), pages: list.length, title, authors: [] };
+  }
+
+  function pageRange(text, n) {   // "1-3, 7, 10-" -> [0, 1, 2, 6, 9, ...]
+    text = text.trim();
+    if (!text) return Array.from({ length: n }, (_, i) => i);
+    const set = new Set();
+    for (const part of text.split(/[,;\s]+/).filter(Boolean)) {
+      const m = part.match(/^(\d*)(?:-(\d*))?$/);
+      if (!m || (!m[1] && !m[2])) throw new Error(`Páginas inválidas: "${part}". Use algo como 1-5, 8, 10-12.`);
+      const a = m[1] ? +m[1] : 1, b = m[2] === undefined ? a : m[2] ? +m[2] : n;
+      for (let p = Math.max(1, Math.min(a, b)); p <= Math.min(n, Math.max(a, b)); p++) set.add(p - 1);
+    }
+    if (!set.size) throw new Error(`Esse PDF tem ${n} página(s); nenhuma cai em "${text}".`);
+    return [...set].sort((a, b) => a - b);
+  }
+
+  async function runPdfToImages() {
+    busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
+    results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
+    results = []; zipUrl = null; renderList();
+    const png = $('xFmt').value === 'png', dpi = +$('xDpi').value, ext = png ? 'png' : 'jpg', mime = png ? 'image/png' : 'image/jpeg';
+    try {
+      initPdfjs();
+      const used = new Set();
+      for (let i = 0; i < files.length; i++) {
+        setItem(i, 'Lendo…'); await tick();
+        let doc;
+        try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await files[i].arrayBuffer()), isEvalSupported: false }).promise; }
+        catch (e) { throw new Error(`${files[i].name}: ${e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'não consegui ler este PDF.'}`); }
+        try {
+          const idx = pageRange($('xPages').value, doc.numPages), digits = String(doc.numPages).length;
+          let base = stem(files[i]).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim() || 'PDF', b = base, c = 1;
+          while (used.has(b.toLowerCase())) b = `${base} (${++c})`;
+          used.add(b.toLowerCase());
+          for (let k = 0; k < idx.length; k++) {
+            say(`Arquivo ${i + 1} de ${files.length}: página ${idx[k] + 1} (${k + 1} de ${idx.length})…`); setItem(i, `Página ${idx[k] + 1}…`); await tick();
+            const page = await doc.getPage(idx[k] + 1);
+            let vp = page.getViewport({ scale: dpi / 72 });
+            const px = vp.width * vp.height, cap = 60e6;   // limite de pixels por imagem
+            if (px > cap) vp = page.getViewport({ scale: dpi / 72 * Math.sqrt(cap / px) });
+            const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+            const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+            await page.render({ canvasContext: cx, viewport: vp }).promise;
+            const blob = await toBlob(cv, mime, 0.9);
+            cv.width = cv.height = 0; page.cleanup();
+            if (!blob) throw new Error(`Página ${idx[k] + 1} grande demais para virar imagem. Use uma resolução menor.`);
+            const name = `${b} - ${String(idx[k] + 1).padStart(digits, '0')}.${ext}`;
+            results.push({ name, url: URL.createObjectURL(blob), bytes: new Uint8Array(await blob.arrayBuffer()), mime });
+          }
+          setItem(i, `✓ ${idx.length} ${idx.length > 1 ? 'imagens' : 'imagem'}`, 'ok');
+        } finally { doc.destroy(); }
+      }
+      await showOut({ ext, mime, many: png ? 'PNGs' : 'JPEGs' });
+      say(`Pronto: ${results.length} ${results.length > 1 ? 'imagens' : 'imagem'}. Toque em baixar.`);
+    } catch (e) {
+      console.error(e);
+      if (results.length) { await showOut({ ext, mime, many: png ? 'PNGs' : 'JPEGs' }); say((cancelled ? 'Cancelado' : 'Erro: ' + (e.message || e)) + `. ${results.length} imagem(ns) já pronta(s): toque em baixar.`, true); }
+      else say(cancelled ? 'Cancelado.' : 'Erro: ' + (e.message || e), true);
+    }
+    busy = false; go.disabled = !files.length; fileEl.disabled = false; $('cancel').style.display = 'none';
+  }
+
+  async function runImagesToPdf() {
+    busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
+    results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
+    results = []; zipUrl = null; renderList();
+    listEl.querySelectorAll('.mv').forEach(d => d.remove());
+    try {
+      const title = $('iTitle').value.trim() || (files.length === 1 ? stem(files[0]) : guessTitle(files));
+      const r = await imagesToPdf(files, title, say);
+      const name = makeName(r.title, []) + '.pdf';
+      const url = URL.createObjectURL(new Blob([r.bytes], { type: 'application/pdf' }));
+      results.push({ name, url, bytes: r.bytes, mime: 'application/pdf' });
+      await showOut({ ext: 'pdf', mime: 'application/pdf', many: 'PDFs' });
+      say(`Pronto: ${r.pages} ${r.pages > 1 ? 'imagens' : 'imagem'} em um PDF (${(r.bytes.length / 1048576).toFixed(1)} MB). Toque em baixar.`);
+    } catch (e) {
+      console.error(e);
+      say(cancelled ? 'Cancelado.' : 'Erro: ' + (e.message || e), true);
+    }
+    busy = false; go.disabled = !files.length; fileEl.disabled = false; $('cancel').style.display = 'none';
+  }
+
   // ---------- lote ----------
   const save = (url, name) => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
 
@@ -2195,7 +2375,7 @@ ${spine.join('\n')}
     try { await navigator.share({ files: results.map(r => new File([r.bytes], r.name, { type: r.mime })) }); }
     catch (e) { if (e.name !== 'AbortError') say('Não foi possível compartilhar: ' + (e.message || e), true); }
   });
-  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, `${results[0].mime === 'application/pdf' ? 'PDFs' : 'EPUBs'} (${results.length} livros).zip`); });
+  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, { 'application/pdf': `PDFs (${results.length} livros).zip`, 'application/epub+zip': `EPUBs (${results.length} livros).zip` }[results[0].mime] || `Imagens (${results.length}).zip`); });
   sepBtn.addEventListener('click', async () => {
     sepBtn.disabled = true;
     for (let i = 0; i < results.length; i++) {
@@ -2205,7 +2385,7 @@ ${spine.join('\n')}
     }
     sepBtn.disabled = false; sepBtn.textContent = sepBtn.dataset.label;
   });
-  go.addEventListener('click', () => (mode === 'merge' ? runMerge : runBatch)());
+  go.addEventListener('click', () => ({ merge: runMerge, i2p: runImagesToPdf, p2i: runPdfToImages }[mode] || runBatch)());
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
