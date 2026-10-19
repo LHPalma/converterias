@@ -14,6 +14,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Juntar** vários PDFs em um PDF, ou vários EPUBs em um EPUB | disponível |
 | **Imagens → PDF** (uma imagem por página) | disponível |
 | **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
+| **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
 
 ## EPUB → PDF
 
@@ -99,6 +100,16 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 3. Baixe tudo em um ZIP (ou uma a uma). Nomes: `Arquivo - 001.png`.
 
 - Resoluções altas em PDFs grandes consomem bastante memória; páginas enormes têm o tamanho reduzido para caber no limite do navegador.
+
+## Organizar PDF
+
+1. Toque em **Organizar PDF** (ou abra com `#organizar`) e escolha um PDF: as páginas aparecem em miniaturas.
+2. Toque nas páginas para selecioná-las (ou use **Todas**, **Ímpares**, **Pares**, **Inverter seleção**) e use a barra de baixo: **⇤ ◀ ▶ ⇥** (mover), **↺ ↻** (girar), **⧉** (duplicar) e **✕** (remover). No computador também dá para arrastar uma página para outro lugar; **Levar selecionadas à posição** resolve movimentos longos no celular.
+3. **Desfazer** volta passo a passo; **Inverter ordem** vira o PDF de trás para a frente.
+4. **Salvar PDF** (todas as páginas na nova ordem) ou **Salvar só as selecionadas** (serve para extrair um trecho).
+
+- As páginas são copiadas como estão (texto, imagens e links ficam iguais); a rotação soma-se à que a página já tinha. Os marcadores das páginas que ficam são mantidos, e os das páginas removidas somem.
+- Páginas duplicadas repetem seus recursos (fontes e imagens) no arquivo, então o PDF cresce um pouco. PDFs com senha não são suportados.
 
 ## Desenvolvimento
 
