@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Converterias</title>
-<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF e PDF para EPUB).">
+<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB e juntar PDFs ou EPUBs).">
 <meta name="theme-color" content="#2f6fed">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -24,7 +24,7 @@
   label { display:block; font-size:.85rem; color:var(--muted); margin:12px 0 4px; }
   label.chk { display:flex; gap:8px; align-items:center; margin:12px 0 0; color:var(--fg); }
   label.chk input { width:auto; }
-  select, input[type=number] { width:100%; padding:10px; font-size:1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); }
+  select, input[type=number], input[type=text] { width:100%; padding:10px; font-size:1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); }
   .row { display:flex; gap:12px; } .row > div { flex:1; }
   button { width:100%; padding:14px; font-size:1rem; font-weight:600; border:0; border-radius:10px; background:var(--accent); color:#fff; }
   button:disabled { opacity:.5; }
@@ -43,6 +43,7 @@
   button.alt { background:transparent; color:var(--accent); border:2px solid var(--accent); }
   small { color:var(--muted); display:block; margin-top:14px; font-size:.8rem; }
   .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  #list .mv { display:flex; gap:6px; margin-top:6px; } #list .mv button { width:auto; padding:4px 12px; font-size:.9rem; background:transparent; color:var(--accent); border:1px solid var(--accent); }
   .tabs button { padding:10px; background:transparent; color:var(--accent); border:2px solid var(--accent); }
   .tabs button.on { background:var(--accent); color:#fff; }
 </style>
@@ -55,6 +56,7 @@
   <div class="tabs">
     <button type="button" data-mode="e2p" class="on">EPUB → PDF</button>
     <button type="button" data-mode="p2e">PDF → EPUB</button>
+    <button type="button" data-mode="merge">Juntar</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -83,6 +85,12 @@
     <label class="chk"><input id="pCover" type="checkbox" checked> Primeira página como capa</label>
     <label class="chk"><input id="pImgs" type="checkbox" checked> Incluir imagens (figuras e páginas escaneadas)</label>
     <label class="chk"><input id="pHf" type="checkbox" checked> Remover cabeçalhos, rodapés e números de página</label>
+  </div>
+
+  <div class="card" id="optMerge" hidden>
+    <label for="mTitle">Título do arquivo final (opcional)</label>
+    <input id="mTitle" type="text" placeholder="Se vazio, uso a parte comum dos nomes">
+    <small style="margin-top:8px">Junte só PDFs ou só EPUBs. A ordem é a da lista: use ↑ e ↓ para mudar.</small>
   </div>
 
   <button id="go" disabled>Converter</button>
@@ -114,8 +122,10 @@
            note: 'Os PDFs são gerados direto no app (sem tela de impressão), com as margens e o tamanho de página escolhidos. Nome do arquivo: Título em Title Case - Subtítulo (Autor). Se o Chrome perguntar, permita vários downloads.' },
     p2e: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'epub', mime: 'application/epub+zip', many: 'EPUBs',
            note: 'O texto do PDF é remontado em parágrafos, com títulos, itálico, negrito, sumário (dos marcadores do PDF ou dos títulos) e imagens. Funciona melhor com livros e textos corridos; PDFs escaneados viram páginas em imagem. Nome do arquivo: Título em Title Case - Subtítulo (Autor). Se o Chrome perguntar, permita vários downloads.' },
+    merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
+             note: 'Junta vários PDFs em um PDF, ou vários EPUBs em um EPUB, na ordem da lista. O PDF ganha um marcador por arquivo (com os marcadores originais dentro); o EPUB ganha um sumário com um item por livro. Dá para escolher arquivos de pastas diferentes em várias vezes.' },
   };
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : 'e2p';
 
   let cancelled = false;
   const say = (msg, err) => { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; };
@@ -123,7 +133,8 @@
   const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   function renderList() {
-    listEl.innerHTML = files.map(f => `<li><span class="n">${esc(f.name)}</span><span class="s">Na fila</span></li>`).join('');
+    listEl.innerHTML = files.map((f, i) => `<li><span class="n">${esc(f.name)}</span><span class="s">${mode === 'merge' ? `${i + 1}º · ${(f.size / 1048576).toFixed(1)} MB` : 'Na fila'}</span>` +
+      (mode === 'merge' ? `<div class="mv"><button type="button" data-mv="${i}" data-d="-1"${i ? '' : ' disabled'}>↑</button><button type="button" data-mv="${i}" data-d="1"${i < files.length - 1 ? '' : ' disabled'}>↓</button><button type="button" data-mv="${i}" data-d="0">Remover</button></div>` : '') + '</li>').join('');
     items = [...listEl.children];
   }
   const setItem = (i, text, cls, dl) => {
@@ -136,27 +147,43 @@
     }
   };
 
-  const pickFiles = list => {
-    files = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const showFiles = () => {
     $('fname').textContent = files.length ? (files.length === 1 ? files[0].name : files.length + ' arquivos selecionados') : MODES[mode].pick;
     $('fmeta').textContent = files.length ? (files.reduce((s, f) => s + f.size, 0) / 1048576).toFixed(1) + ' MB no total' : '';
-    go.disabled = !files.length;
+    go.disabled = mode === 'merge' ? files.length < 2 : !files.length;
     outBtns.style.display = 'none';
     renderList(); say('');
   };
-  fileEl.addEventListener('change', () => pickFiles(fileEl.files));
+  const pickFiles = list => {
+    files = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    showFiles();
+  };
+  fileEl.addEventListener('change', () => {
+    if (mode !== 'merge') return pickFiles(fileEl.files);
+    files = files.concat([...fileEl.files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })));   // juntar acumula as escolhas
+    fileEl.value = ''; showFiles();
+  });
+  listEl.addEventListener('click', e => {
+    const b = e.target.closest('button[data-mv]');
+    if (!b || busy || mode !== 'merge') return;
+    const i = +b.dataset.mv, d = +b.dataset.d;
+    if (!d) files.splice(i, 1);
+    else if (files[i + d]) [files[i], files[i + d]] = [files[i + d], files[i]];
+    showFiles();
+  });
 
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e';
+    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e'; $('optMerge').hidden = m !== 'merge';
+    go.textContent = m === 'merge' ? 'Juntar' : 'Converter';
     fileEl.accept = MODES[m].accept; fileEl.value = '';
     $('note').textContent = MODES[m].note;
-    pickFiles([]);
+    files = []; showFiles();
   };
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', b.dataset.mode === 'p2e' ? '#pdf-epub' : location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -1757,8 +1784,281 @@ ${spine.join('\n')}
     return { bytes, pages: N, chapters: files.length, title, authors, garbledPages };
   }
 
+  // ---------- juntar PDFs ou EPUBs ----------
+  const stem = f => f.name.replace(/\.(pdf|epub)$/i, '');
+  async function kindOf(f) {
+    const head = new Uint8Array(await f.slice(0, 1024).arrayBuffer());
+    const s = String.fromCharCode(...head);
+    return s.includes('%PDF-') ? 'pdf' : s.startsWith('PK') ? 'epub' : null;
+  }
+  function guessTitle(list) {
+    const names = list.map(stem);
+    let p = names[0];
+    for (const n of names) {
+      let i = 0;
+      while (i < p.length && i < n.length && p[i].toLowerCase() === n[i].toLowerCase()) i++;
+      p = p.slice(0, i);
+    }
+    p = p.replace(/[^\p{L}\p{N}]+$/u, '').replace(/\s+\d+$/, '').replace(/[^\p{L}]+$/u, '');
+    return p.length >= 3 ? p : names[0] + (names.length > 1 ? ` (+${names.length - 1})` : '');
+  }
+
+  async function pdfOutline(bytes, count) {   // marcadores do PDF: [{ title, page, items }]
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
+      pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([$('pdfWorker').textContent], { type: 'text/javascript' }));
+    let doc;
+    try {
+      doc = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise;
+      const walk = async list => {
+        const out = [];
+        for (const it of list || []) {
+          let page = null;
+          try {
+            let dest = it.dest;
+            if (typeof dest === 'string') dest = await doc.getDestination(dest);
+            if (Array.isArray(dest) && dest[0] != null) page = typeof dest[0] === 'object' ? await doc.getPageIndex(dest[0]) : dest[0];
+          } catch (e) {}
+          const title = (it.title || '').replace(/\s+/g, ' ').trim(), items = await walk(it.items);
+          if (title && page != null && page >= 0 && page < count) out.push({ title, page, items });
+          else out.push(...items);
+        }
+        return out;
+      };
+      return await walk(await doc.getOutline());
+    } catch (e) { return []; }
+    finally { if (doc) doc.destroy(); }
+  }
+
+  async function mergePdfs(list, title, say) {
+    const { PDFDocument, PDFName, PDFHexString } = PDFLib;
+    const out = await PDFDocument.create();
+    const tops = [];
+    for (let i = 0; i < list.length; i++) {
+      say(`Juntando ${i + 1} de ${list.length}…`); setItem(i, 'Lendo…'); await tick();
+      const bytes = new Uint8Array(await list[i].arrayBuffer());
+      let src;
+      try { src = await PDFDocument.load(bytes, { updateMetadata: false }); }
+      catch (e) { throw new Error(`${list[i].name}: ` + (/encrypt/i.test(e.name + e.message) ? 'PDF protegido por senha.' : 'não consegui ler este PDF.')); }
+      const start = out.getPageCount(), n = src.getPageCount();
+      (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p));
+      const shift = ns => ns.map(x => ({ title: x.title, page: x.page + start, items: shift(x.items) }));
+      tops.push({ title: stem(list[i]), page: start, items: shift(await pdfOutline(bytes, n)) });
+      setItem(i, `✓ ${n} ${n > 1 ? 'páginas' : 'página'}`, 'ok'); await tick();
+    }
+    // marcadores: um por arquivo, com os marcadores originais dentro
+    const ctx = out.context, pgs = out.getPages(), rootRef = ctx.nextRef();
+    const build = (nodes, parent) => {
+      const refs = nodes.map(() => ctx.nextRef());
+      nodes.forEach((n, i) => {
+        const d = { Title: PDFHexString.fromText(n.title), Parent: parent, Dest: [pgs[Math.min(Math.max(n.page, 0), pgs.length - 1)].ref, 'Fit'] };
+        if (i) d.Prev = refs[i - 1];
+        if (i < nodes.length - 1) d.Next = refs[i + 1];
+        if (n.items.length) { const k = build(n.items, refs[i]); d.First = k.first; d.Last = k.last; d.Count = -n.items.length; }
+        ctx.assign(refs[i], ctx.obj(d));
+      });
+      return { first: refs[0], last: refs[refs.length - 1] };
+    };
+    const k = build(tops, rootRef);
+    ctx.assign(rootRef, ctx.obj({ Type: 'Outlines', First: k.first, Last: k.last, Count: tops.length }));
+    out.catalog.set(PDFName.of('Outlines'), rootRef);
+    out.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+    out.setTitle(title); out.setProducer('Converterias'); out.setCreator('Converterias');
+    say('Gerando o PDF…'); await tick();
+    const bytes = await out.save();
+    return { bytes, pages: out.getPageCount(), title, authors: [] };
+  }
+
+  const urlEnc = p => p.split('/').map(encodeURIComponent).join('/');
+  async function mergeEpubs(list, title, say) {
+    const xml = (s, type = 'application/xml') => new DOMParser().parseFromString(s, type);
+    const kids = (e, name) => [...e.children].filter(c => c.localName === name);
+    const out = new JSZip();
+    out.file('mimetype', 'application/epub+zip', { compression: 'STORE' });   // tem de ser o primeiro do zip
+    const man = [], spine = [], books = [], authors = [];
+    let lang = '', coverId = null;
+    for (let i = 0; i < list.length; i++) {
+      say(`Juntando ${i + 1} de ${list.length}…`); setItem(i, 'Lendo…'); await tick();
+      const p = 'b' + (i + 1) + '_', dir = 'b' + (i + 1) + '/';
+      const fail = m => new Error(`${list[i].name}: ${m}`);
+      let zip;
+      try { zip = await JSZip.loadAsync(list[i]); } catch (e) { throw fail('não consegui abrir este EPUB.'); }
+      const lower = new Map(Object.keys(zip.files).map(n => [n.toLowerCase(), n]));
+      const find = q => zip.file(q) || (lower.has(q.toLowerCase()) ? zip.file(lower.get(q.toLowerCase())) : null);
+      const cont = find('META-INF/container.xml');
+      if (!cont) throw fail('não parece um EPUB válido (sem container.xml).');
+      const opfPath = xml(await cont.async('string')).querySelector('rootfile').getAttribute('full-path');
+      const opfFile = find(opfPath);
+      if (!opfFile) throw fail('EPUB sem arquivo de pacote (.opf).');
+      const opf = xml(await opfFile.async('string'));
+      const items = new Map();
+      opf.querySelectorAll('manifest > item').forEach(it => {
+        const href = it.getAttribute('href') || '';
+        items.set(it.getAttribute('id'), { id: it.getAttribute('id'), remote: /^[a-z][a-z0-9+.-]*:/i.test(href), href,
+          path: resolve(opfPath, href), type: it.getAttribute('media-type') || '', props: (it.getAttribute('properties') || '').split(/\s+/).filter(Boolean),
+          fallback: it.getAttribute('fallback') });
+      });
+      const refs = [...opf.querySelectorAll('spine > itemref')].filter(r => items.has(r.getAttribute('idref')));
+      if (!refs.length) throw fail('EPUB sem conteúdo no spine.');
+      const meta = sel => { const e = opf.querySelector(sel); return e ? e.textContent.trim() : ''; };
+      const bookTitle = meta('metadata > title, dc\\:title') || stem(list[i]);
+      let creators = [...opf.querySelectorAll('metadata > creator, dc\\:creator')];
+      const only = creators.filter(c => { const r = c.getAttribute('opf:role'); return !r || r === 'aut'; });
+      if (only.length) creators = only;
+      creators.map(c => c.textContent.trim()).filter(Boolean).forEach(a => { if (!authors.includes(a)) authors.push(a); });
+      if (!lang) lang = meta('metadata > language, dc\\:language').split('-')[0].toLowerCase();
+
+      // fontes ofuscadas (IDPF): desfaz, pois o identificador do livro muda ao juntar
+      const unob = new Map();
+      const enc = find('META-INF/encryption.xml');
+      if (enc) {
+        const uidRef = opf.documentElement.getAttribute('unique-identifier');
+        const uidEl = uidRef && [...opf.querySelectorAll('metadata > identifier, dc\\:identifier')].find(e => e.getAttribute('id') === uidRef);
+        const uid = uidEl ? uidEl.textContent.replace(/[ \u0009\u000d\u000a]/g, '') : '';
+        for (const ed of xml(await enc.async('string')).getElementsByTagName('EncryptedData')) {
+          const alg = (ed.getElementsByTagName('EncryptionMethod')[0] || {}).getAttribute?.('Algorithm') || '';
+          const ref = ed.getElementsByTagName('CipherReference')[0];
+          if (!ref) continue;
+          if (alg !== 'http://www.idpf.org/2008/embedding' || !uid) throw fail('EPUB com proteção (DRM): não dá para juntar.');
+          let u = ref.getAttribute('URI'); try { u = decodeURIComponent(u); } catch (e) {}
+          unob.set(u.replace(/^\//, ''), new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(uid))));
+        }
+      }
+
+      // sumário original: nav (EPUB 3) ou NCX (EPUB 2)
+      const navItem = [...items.values()].find(m => m.props.includes('nav'));
+      const ncxItem = items.get(opf.querySelector('spine')?.getAttribute('toc')) || [...items.values()].find(m => m.type === 'application/x-dtbncx+xml');
+      const target = (base, href) => { const [h, frag] = (href || '').split('#'); const path = h ? resolve(base, h) : base; return { path, frag }; };
+      let toc = [];
+      try {
+        if (navItem && find(navItem.path)) {
+          const raw = await find(navItem.path).async('string');
+          let d = xml(raw, 'application/xhtml+xml'); if (d.querySelector('parsererror')) d = new DOMParser().parseFromString(raw, 'text/html');
+          const navs = [...d.getElementsByTagName('nav')];
+          const nv = navs.find(n => /\btoc\b/.test(n.getAttribute('epub:type') || n.getAttribute('type') || '')) || navs[0];
+          const walk = ol => kids(ol, 'li').map(li => {
+            const a = kids(li, 'a')[0] || kids(li, 'span')[0], sub = kids(li, 'ol')[0];
+            return { title: a ? a.textContent.replace(/\s+/g, ' ').trim() : '', ...(a && a.getAttribute('href') ? target(navItem.path, a.getAttribute('href')) : {}), items: sub ? walk(sub) : [] };
+          });
+          if (nv && kids(nv, 'ol')[0]) toc = walk(kids(nv, 'ol')[0]);
+        } else if (ncxItem && find(ncxItem.path)) {
+          const d = xml(await find(ncxItem.path).async('string'));
+          const walk = parent => kids(parent, 'navPoint').map(np => {
+            const t = np.querySelector('navLabel > text'), c = kids(np, 'content')[0];
+            return { title: t ? t.textContent.replace(/\s+/g, ' ').trim() : '', ...(c ? target(ncxItem.path, c.getAttribute('src')) : {}), items: walk(np) };
+          });
+          const nm = d.getElementsByTagName('navMap')[0];
+          if (nm) toc = walk(nm);
+        }
+      } catch (e) { console.warn('sumário ilegível', e); }
+
+      // arquivos
+      const cov = i === 0 && ([...items.values()].find(m => m.props.includes('cover-image')) || items.get(opf.querySelector('meta[name=cover]')?.getAttribute('content')));
+      if (cov) coverId = p + cov.id;
+      const first = items.get(refs[0].getAttribute('idref'));
+      const inSpine = new Set(refs.map(r => r.getAttribute('idref')));
+      const have = new Set();
+      for (const m of items.values()) {
+        if (m.type === 'application/x-dtbncx+xml' || m.type === 'application/smil+xml' || (m === navItem && !inSpine.has(m.id))) continue;
+        const props = m.props.filter(x => x !== 'nav' && x !== 'cover-image');
+        if (m === cov) props.push('cover-image');
+        let data = null;
+        if (!m.remote && /xhtml/.test(m.type) && find(m.path)) {   // EPUB 3 exige declarar svg, mathml e scripts
+          data = await find(m.path).async('uint8array');
+          const s = new TextDecoder().decode(data);
+          for (const [re, pr] of [[/<svg[\s>]/i, 'svg'], [/<(m:)?math[\s>]/i, 'mathml'], [/<script[\s>]/i, 'scripted']]) if (re.test(s) && !props.includes(pr)) props.push(pr);
+        }
+        let attrs = `id="${p}${xesc(m.id)}" href="${m.remote ? xesc(m.href) : dir + urlEnc(m.path)}" media-type="${xesc(m.type)}"${props.length ? ` properties="${props.join(' ')}"` : ''}`;
+        if (m.fallback && items.has(m.fallback)) attrs += ` fallback="${p}${xesc(m.fallback)}"`;
+        if (!m.remote) {
+          const f = find(m.path);
+          if (!f) continue;
+          data = data || await f.async('uint8array');
+          if (unob.has(m.path)) { const key = unob.get(m.path); data = data.slice(); for (let k = 0; k < Math.min(1040, data.length); k++) data[k] ^= key[k % key.length]; }
+          else if (/xhtml/.test(m.type)) {   // EPUB 2: DOCTYPE do XHTML 1.1 vira o do EPUB 3
+            const s = new TextDecoder().decode(data);
+            if (/<!DOCTYPE\s+html\s+PUBLIC/i.test(s)) data = new TextEncoder().encode(s.replace(/<!DOCTYPE\s+html\s+PUBLIC[^>]*>/i, '<!DOCTYPE html>'));
+          }
+          out.file('OEBPS/' + dir + m.path, data, { compression: /^(image\/(jpeg|png|gif|webp)|audio|video|font|application\/(font|vnd\.ms-opentype))/.test(m.type) ? 'STORE' : 'DEFLATE' });
+          have.add(m.path);
+        }
+        man.push(`<item ${attrs}/>`);
+      }
+      refs.forEach(r => {
+        const id = r.getAttribute('idref');
+        if (items.get(id).remote || have.has(items.get(id).path))
+          spine.push(`<itemref idref="${p}${xesc(id)}"${r.getAttribute('linear') === 'no' ? ' linear="no"' : ''}${r.getAttribute('properties') ? ` properties="${xesc(r.getAttribute('properties'))}"` : ''}/>`);
+      });
+      const firstHref = have.has(first.path) ? dir + urlEnc(first.path) : null;
+      books.push({ title: bookTitle, href: firstHref, items: toc, dir, have });
+      setItem(i, `✓ ${refs.length} ${refs.length > 1 ? 'seções' : 'seção'}`, 'ok'); await tick();
+    }
+    if (coverId && !man.some(s => s.startsWith(`<item id="${coverId}" `))) coverId = null;
+    if (!lang) lang = 'pt';
+
+    // sumário novo: um item por livro, com o sumário original dentro
+    const link = (b, n) => n.path && b.have.has(n.path) ? b.dir + urlEnc(n.path) + (n.frag ? '#' + n.frag : '') : null;
+    const clean = (b, ns) => ns.flatMap(n => {
+      const items = clean(b, n.items), href = link(b, n);
+      return n.title && href ? [{ title: n.title, href, items }] : items;
+    });
+    const tree = books.map(b => ({ title: b.title, href: b.href, items: clean(b, b.items) })).filter(n => n.href);
+    const navOl = ns => `<ol>${ns.map(n => `<li><a href="${xesc(n.href)}">${xesc(n.title)}</a>${n.items.length ? navOl(n.items) : ''}</li>`).join('')}</ol>`;
+    let order = 0, pid = 0; const played = new Map();
+    const ncx = ns => ns.map(n => { const o = played.get(n.href) || played.set(n.href, ++order).get(n.href); return `<navPoint id="n${++pid}" playOrder="${o}"><navLabel><text>${xesc(n.title)}</text></navLabel><content src="${xesc(n.href)}"/>${ncx(n.items)}</navPoint>`; }).join('');
+    const tocName = { pt: 'Sumário', en: 'Contents', es: 'Índice', fr: 'Sommaire', de: 'Inhalt', it: 'Indice', ru: 'Содержание', zh: '目录', ja: '目次', ko: '목차', ar: 'المحتويات', he: 'תוכן עניינים', el: 'Περιεχόμενα' }[lang] || 'Contents';
+    const id = 'urn:uuid:' + uuid();
+    out.file('META-INF/container.xml', `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
+    out.file('OEBPS/nav.xhtml', `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}" lang="${lang}">
+<head><meta charset="utf-8"/><title>${xesc(tocName)}</title></head>
+<body><nav epub:type="toc" id="toc"><h1>${xesc(tocName)}</h1>${navOl(tree)}</nav></body>
+</html>`);
+    out.file('OEBPS/toc.ncx', `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${id}"/></head><docTitle><text>${xesc(title)}</text></docTitle><navMap>${ncx(tree)}</navMap></ncx>`);
+    out.file('OEBPS/content.opf', `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" xml:lang="${lang}">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:identifier id="uid">${id}</dc:identifier>
+<dc:title>${xesc(title)}</dc:title>
+${authors.map(a => `<dc:creator>${xesc(a)}</dc:creator>`).join('\n')}
+<dc:language>${lang}</dc:language>
+<meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}</meta>
+${coverId ? `<meta name="cover" content="${xesc(coverId)}"/>` : ''}
+</metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+${man.join('\n')}
+</manifest>
+<spine toc="ncx"${['ar', 'he'].includes(lang) ? ' page-progression-direction="rtl"' : ''}>
+${spine.join('\n')}
+</spine>
+</package>`);
+    say('Gerando o EPUB…'); await tick();
+    const bytes = await out.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/epub+zip' });
+    return { bytes, chapters: spine.length, title, authors };
+  }
+
   // ---------- lote ----------
   const save = (url, name) => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
+
+  async function showOut(M) {
+    if (!results.length) return;
+    if (results.length > 1) {
+      say('Montando o ZIP…'); await tick();
+      const z = new JSZip();
+      results.forEach(r => z.file(r.name, r.bytes, { compression: 'STORE' }));
+      zipUrl = URL.createObjectURL(await z.generateAsync({ type: 'blob', compression: 'STORE' }));
+    }
+    zipBtn.style.display = results.length > 1 ? '' : 'none';
+    sepBtn.textContent = sepBtn.dataset.label = results.length > 1 ? `Baixar todos os ${M.many} (sem ZIP)` : `Baixar o ${M.ext.toUpperCase()}`;
+    sepBtn.className = results.length > 1 ? 'alt' : '';
+    outBtns.style.display = 'block';
+    shareBtn.textContent = `Compartilhar ${M.many}…`;
+    shareBtn.style.display = canShare(results.map(r => new File([new Uint8Array(1)], r.name, { type: r.mime }))) ? '' : 'none';
+  }
 
   async function runBatch() {
     busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
@@ -1786,24 +2086,36 @@ ${spine.join('\n')}
       if (cancelled) break;
       await tick();
     }
-    if (results.length) {
-      if (results.length > 1) {
-        say('Montando o ZIP…'); await tick();
-        const z = new JSZip();
-        results.forEach(r => z.file(r.name, r.bytes, { compression: 'STORE' }));
-        zipUrl = URL.createObjectURL(await z.generateAsync({ type: 'blob', compression: 'STORE' }));
-      }
-      zipBtn.style.display = results.length > 1 ? '' : 'none';
-      sepBtn.textContent = sepBtn.dataset.label = results.length > 1 ? `Baixar todos os ${M.many} (sem ZIP)` : `Baixar o ${M.ext.toUpperCase()}`;
-      sepBtn.className = results.length > 1 ? 'alt' : '';
-      outBtns.style.display = 'block';
-      shareBtn.textContent = `Compartilhar ${M.many}…`;
-      shareBtn.style.display = canShare(results.map(r => new File([new Uint8Array(1)], r.name, { type: r.mime }))) ? '' : 'none';
-    }
+    await showOut(M);
     const fail = files.length - results.length;
     if (cancelled) say(results.length ? `Cancelado. ${results.length} já convertido(s): toque em baixar.` : 'Conversão cancelada.');
     else say(`Pronto: ${results.length} convertido(s)${fail ? `, ${fail} com erro` : ''}. Toque em baixar.`, !results.length);
     busy = false; go.disabled = false; fileEl.disabled = false; $('cancel').style.display = 'none';
+  }
+  async function runMerge() {
+    busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
+    results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
+    results = []; zipUrl = null; renderList();
+    listEl.querySelectorAll('.mv').forEach(d => d.remove());
+    try {
+      const kinds = await Promise.all(files.map(kindOf));
+      const kind = kinds[0];
+      const bad = files.find((f, i) => kinds[i] !== kind);
+      if (!kind) throw new Error(`${files[0].name}: não é PDF nem EPUB.`);
+      if (bad) throw new Error(`${bad.name}: misturar PDF e EPUB não dá. Escolha só ${kind === 'pdf' ? 'PDFs' : 'EPUBs'}.`);
+      const title = $('mTitle').value.trim() || guessTitle(files);
+      const r = await (kind === 'pdf' ? mergePdfs : mergeEpubs)(files, title, say);
+      const M = kind === 'pdf' ? { ext: 'pdf', mime: 'application/pdf', many: 'PDFs' } : { ext: 'epub', mime: 'application/epub+zip', many: 'EPUBs' };
+      const name = makeName(r.title, r.authors) + '.' + M.ext;
+      const url = URL.createObjectURL(new Blob([r.bytes], { type: M.mime }));
+      results.push({ name, url, bytes: r.bytes, mime: M.mime });
+      await showOut(M);
+      say(`Pronto: ${files.length} ${M.many} juntados em um só (${(r.bytes.length / 1048576).toFixed(1)} MB${r.pages ? `, ${r.pages} páginas` : ''}). Toque em baixar.`);
+    } catch (e) {
+      console.error(e);
+      say(cancelled ? 'Cancelado.' : 'Erro: ' + (e.message || e), true);
+    }
+    busy = false; go.disabled = files.length < 2; fileEl.disabled = false; $('cancel').style.display = 'none';
   }
   $('cancel').addEventListener('click', () => { cancelled = true; say('Cancelando…'); });
 
@@ -1822,7 +2134,7 @@ ${spine.join('\n')}
     }
     sepBtn.disabled = false; sepBtn.textContent = sepBtn.dataset.label;
   });
-  go.addEventListener('click', runBatch);
+  go.addEventListener('click', () => (mode === 'merge' ? runMerge : runBatch)());
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
