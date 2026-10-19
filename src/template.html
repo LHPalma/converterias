@@ -620,20 +620,142 @@
   // ---------- conversão PDF -> EPUB ----------
   const xesc = s => esc(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, '');
   const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return b[b.length >> 1]; };
+  const modeOf = (pairs, bin) => {   // moda ponderada de [valor, peso]; devolve a média dos valores da faixa vencedora
+    const h = new Map();
+    for (const [v, w] of pairs) { const k = Math.round(v / bin); const e = h.get(k) || [0, 0, 0]; e[0] += w; e[1] += v * w; e[2] += w; h.set(k, e); }
+    let best = null;
+    for (const e of h.values()) if (!best || e[0] > best[0]) best = e;
+    return best ? best[1] / best[2] : 0;
+  };
   const uuid = () => {
     const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
     const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   };
   const CLITIC = new Set('me te se lhe lhes nos vos o a os as lo la los las no na nas mo ma to ta'.split(' '));
-  const SENT_END = /[.!?…:;"”’»)\]]$/;
-  const LIST_START = /^([•▪◦●■–—-]|\d{1,3}[.)]|[a-z][.)])\s/;
-
+  const TERMINAL = /[.!?…]["”’»)\]*]*$/;
+  const LIST_START = /^(?:[•▪◦●■‣◆▸►–—-]\s|\(?\d{1,2}[.)]\s|\(?[a-h][.)]\s|\([ivx]+\)\s)/;
+  const NOTE_LABEL = /^(\d{1,3}|[*†‡§]+)(?=[\s.) ]|$)/;
+  const PART_RE = /^(?:livro|parte|part|book|volume|vol\.|t[íi]tulo)\b/i;
+  const CHAP_RE = /^(?:cap[íi]tulo|chapter|ap[êe]ndice|appendix|pref[áa]cio|preface|pr[óo]logo|prologue|introdu[cç][ãa]o|introduction|conclus[ãa]o|conclusion|posf[áa]cio|afterword|ep[íi]logo|epilogue|agradecimentos|acknowledg\w+|sum[áa]rio|contents|[ií]ndice|bibliografia|refer[êe]ncias|notas)(?:\s|$|[:.\-–—])/i;
+  const TOC_LEAD = /(?:\.{4,}|(?:\.\s){4,}|…{2,}|(?:\s\.){4,})\s*(\d{1,4}|[ivxlc]{1,6})\s*$/i;
+  const TOC_NUM = /^\D.{6,}?[^,\d\s]\s+(\d{1,4})$/;   // "Título 44" (sem ser lista de páginas de um índice remissivo: "Nome, 12, 45")
+  const STOPW = {
+    pt: 'de que e o a do da em um para com não uma os no se na por mais as dos como mas foi ao ele das tem à seu sua ou ser quando muito há nos já está também só pelo pela até isso ela entre era depois sem mesmo aos ter seus quem nas esse eles estão você tinha foram essa num nem suas meu às minha têm numa'.split(' '),
+    en: 'the of and to in is that it for was on with as are be by this at from or an have not but they which you were his had her she we their has been one would there all can more when who will if no out what so up said about them into than its then my other some could only these may any like him now also over such'.split(' '),
+    es: 'de la que el en y a los se del las un por con no una su para es al lo como más pero sus le ya o este sí porque esta entre cuando muy sin sobre también me hasta hay donde quien desde todo nos durante todos uno les ni contra otros ese eso ante ellos e esto antes algunos qué unos yo otro otras otra él tanto esa estos mucho quienes nada muchos cual poco ella estar estas algunas algo'.split(' '),
+    fr: 'de la le et les des en un du une que est pour qui dans a par plus pas au sur ne se ce il sont aux avec son ses mais ou comme cette ont été leur tout nous être elle même deux ces aussi fait ainsi entre dont sans peut sous avant encore très'.split(' '),
+    de: 'der die und in den von zu das mit sich des auf für ist im dem nicht ein eine als auch es an werden aus er hat dass sie nach wird bei einer um am sind noch wie einem über einen so zum war haben nur oder aber vor zur bis mehr durch man sein wurde sei'.split(' '),
+    it: 'di e il la che in a per un del è con non una le si da dei i al lo come più ma gli della sono ha nel anche o se alla questo tra suo loro cui dalla nella era dopo essere stato molto'.split(' '),
+  };
   function guessLang(text) {
-    const count = re => (text.match(re) || []).length;
-    const pt = count(/\s(que|não|uma|para|com|são|está|também|é)\s/gi), en = count(/\s(the|and|of|that|with|is|for|this)\s/gi),
-          es = count(/\s(que|los|las|una|para|con|está|también|es|el)\s/gi);
-    return en > pt && en > es ? 'en' : es > pt * 1.2 ? 'es' : 'pt';
+    const sample = (text.toLowerCase().match(/\p{L}+/gu) || []).slice(0, 8000);
+    let best = ['pt', 0];
+    for (const [l, list] of Object.entries(STOPW)) {
+      const set = new Set(list), n = sample.reduce((c, w) => c + (set.has(w) ? 1 : 0), 0);
+      if (n > best[1]) best = [l, n];
+    }
+    return best[1] > 20 ? best[0] : 'pt';
+  }
+
+  // vãos verticais entre colunas de texto (lista de posições x; vazia = coluna única)
+  function findGutters(items, ps) {
+    const n = items.length;
+    if (n < 24) return [];
+    const x0 = Math.min(...items.map(r => r.x)), x1 = Math.max(...items.map(r => r.x + r.w)), span = x1 - x0;
+    if (span < 12 * ps) return [];
+    const cov = new Uint16Array(Math.ceil(x1) + 2);
+    for (const r of items) { const a = Math.max(0, Math.floor(r.x)), b = Math.min(cov.length - 1, Math.ceil(r.x + r.w)); for (let x = a; x <= b; x++) cov[x]++; }
+    const lo = Math.floor(x0 + 0.2 * span), hi = Math.ceil(x1 - 0.2 * span), thr = Math.max(1, Math.floor(0.025 * n));
+    let best = null;
+    for (let x = lo; x <= hi;) {
+      if (cov[x] > thr) { x++; continue; }
+      let e = x; while (e <= hi && cov[e] <= thr) e++;
+      const w = e - x; if (w >= Math.max(7, 0.8 * ps) && (!best || w > best.w)) best = { a: x, w };
+      x = e;
+    }
+    if (!best) return [];
+    const g = best.a + best.w / 2, left = items.filter(r => r.x + r.w / 2 < g), right = items.filter(r => r.x + r.w / 2 >= g);
+    if (left.length < 0.2 * n || right.length < 0.2 * n) return [];
+    return [...findGutters(left, ps), g, ...findGutters(right, ps)];
+  }
+
+  // agrupa itens de texto em linhas (baseline comum); sobrescritos e subscritos entram na linha do texto principal
+  function clusterLines(items) {
+    const bySize = [...items].sort((a, b) => b.size - a.size || a.y - b.y);
+    const lines = [];
+    for (const r of bySize) {
+      let best = null, bd = 1e9;
+      for (const L of lines) {
+        const dy = r.y - L.y, ad = Math.abs(dy);
+        let ok;
+        if (r.size >= 0.9 * L.size) ok = ad < 0.4 * L.size;
+        else {
+          const short = r.str.trim().length <= 8, ratio = r.size / L.size;
+          ok = ad < 0.25 * L.size || (short && ratio > 0.45 && ((dy < -0.12 * L.size && dy > -0.75 * L.size) || (dy > 0.12 * L.size && dy < 0.45 * L.size)));
+        }
+        if (ok && ad < bd) { best = L; bd = ad; }
+      }
+      if (best) best.items.push(r); else lines.push({ y: r.y, size: r.size, items: [r] });
+    }
+    return lines;
+  }
+
+  const plainRun = r => !r.sup && !r.i && !r.b;   // o espaço entre trechos fica fora de itálico, negrito e sobrescrito
+  function finalizeLines(groups, styleOf, pn, col) {
+    const out = [];
+    for (const g of groups) {
+      const items = g.items.sort((a, b) => a.x - b.x);
+      const bySize = new Map();
+      for (const r of items) { const k = Math.round(r.size * 2) / 2; bySize.set(k, (bySize.get(k) || 0) + r.str.length); }
+      const size = [...bySize.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const base = items.filter(r => Math.abs(r.size - size) < 0.6);
+      const y = base.length ? median(base.map(r => r.y)) : g.y;
+      const L = { pn, items, size, y, top: y - size, x0: items[0].x, x1: Math.max(...items.map(r => r.x + r.w)), col, runs: [] };
+      let prevEnd = null;
+      for (const r of items) {
+        const st = styleOf(r.font), small = r.size < 0.9 * size;
+        const run = { t: r.str, b: st.b, i: st.i, sup: small && y - r.y > 0.1 * size ? 1 : small && r.y - y > 0.12 * size ? -1 : 0, pn };
+        const last = L.runs[L.runs.length - 1];
+        const gap = prevEnd === null ? 0 : r.x - prevEnd;
+        const sp = last && gap > 0.15 * Math.min(r.size, size) && !/\s$/.test(last.t) && !/^\s/.test(run.t);
+        if (last && last.b === run.b && last.i === run.i && last.sup === run.sup) last.t += (sp ? ' ' : '') + run.t;
+        else { if (sp) { if (!plainRun(run) || plainRun(last)) last.t += ' '; else run.t = ' ' + run.t; } L.runs.push(run); }
+        prevEnd = r.x + r.w;
+      }
+      L.runs.forEach(r => r.t = r.t.replace(/\s+/g, ' '));
+      L.runs[0].t = L.runs[0].t.replace(/^\s+/, '');
+      const lr = L.runs[L.runs.length - 1]; lr.t = lr.t.replace(/\s+$/, '');
+      L.runs = L.runs.filter(r => r.t);
+      L.text = L.runs.map(r => r.t).join('');
+      if (!L.text) continue;
+      L.bold = L.runs.every(r => r.b || !r.t.trim());
+      L.upper = /\p{Lu}/u.test(L.text) && !/\p{Ll}/u.test(L.text);
+      out.push(L);
+    }
+    return out.sort((a, b) => a.y - b.y);
+  }
+
+  // linhas da página na ordem de leitura (colunas da esquerda para a direita; títulos que cruzam colunas separam faixas)
+  function pageLines(raw, styleOf, pn) {
+    const ps = modeOf(raw.map(r => [r.size, r.str.length]), 0.5) || 10;
+    const gutters = findGutters(raw, ps);
+    if (!gutters.length) return finalizeLines(clusterLines(raw), styleOf, pn, 0);
+    const span = [], cols = gutters.map(() => []).concat([[]]);
+    for (const r of raw) {
+      if (gutters.some(g => r.x < g - 0.5 && r.x + r.w > g + 0.5)) span.push(r);
+      else cols[gutters.filter(g => r.x + r.w / 2 > g).length].push(r);
+    }
+    const spanLines = finalizeLines(clusterLines(span), styleOf, pn, 0).map(L => (L.span = true, L));
+    const colLines = cols.map((items, c) => finalizeLines(clusterLines(items), styleOf, pn, c));
+    const out = []; let prev = -Infinity;
+    for (const S of [...spanLines, null]) {
+      const bound = S ? S.y : Infinity;
+      for (const cl of colLines) out.push(...cl.filter(L => L.y > prev && L.y <= bound));
+      if (S) out.push(S);
+      prev = bound;
+    }
+    return out;
   }
 
   async function pdfToEpub(file, say) {
@@ -736,7 +858,7 @@
         const m = Util.transform(vp.transform, it.transform);
         const size = Math.hypot(m[2], m[3]);
         if (size < 1 || Math.abs(m[1]) > 0.05 * Math.abs(m[0]) || m[0] <= 0) continue;   // ignora texto girado
-        raw.push({ x: m[4], y: m[5], w: it.width, size, str: it.str.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/\s+/g, ' '), font: it.fontName });
+        raw.push({ x: m[4], y: m[5], w: it.width, size, str: it.str.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/[\u21a9\u21b5\ufe0e]/g, '').replace(/\s+/g, ' '), font: it.fontName });
       }
       const chars = raw.reduce((n, r) => n + r.str.trim().length, 0);
 
@@ -770,101 +892,116 @@
         }
       }
 
-      // agrupa itens em linhas (na ordem do conteúdo)
-      const lines = [];
+      let lines = [];
       if (!full) {
-        let L = null;
         const inFig = r => figs.some(f => f.box && r.x + r.w / 2 > f.box[0] && r.x + r.w / 2 < f.box[2] && r.y - r.size / 2 > f.box[1] && r.y - r.size / 2 < f.box[3]);
-        for (const r of raw) {
-          if (inFig(r)) continue;   // texto dentro da figura já está na imagem
-          const sameLine = L && (Math.abs(r.y - L.y) < 0.35 * Math.max(r.size, L.size) ||
-            (r.size < 0.9 * L.size && L.y - r.y > 0.1 * L.size && L.y - r.y < 0.7 * L.size && r.x >= L.x1 - L.size));   // sobrescrito
-          if (!sameLine) { if (L) lines.push(L); L = { page: pn, items: [], y: r.y, size: r.size, x0: r.x, x1: r.x + r.w }; }
-          L.items.push(r);
-          if (r.size > L.size && Math.abs(r.y - L.y) < 0.35 * r.size) { L.size = r.size; L.y = r.y; }
-          L.x0 = Math.min(L.x0, r.x); L.x1 = Math.max(L.x1, r.x + r.w);
-        }
-        if (L) lines.push(L);
-        for (const L of lines) {
-          L.items.sort((a, b) => a.x - b.x);
-          // tamanho dominante (por número de caracteres)
-          const bySize = new Map();
-          for (const r of L.items) { const k = Math.round(r.size * 2) / 2; bySize.set(k, (bySize.get(k) || 0) + r.str.length); }
-          L.size = [...bySize.entries()].sort((a, b) => b[1] - a[1])[0][0];
-          const base = L.items.filter(r => Math.abs(r.size - L.size) < 0.6);
-          if (base.length) L.y = median(base.map(r => r.y));
-          L.runs = []; let prevEnd = null;
-          for (const r of L.items) {
-            const st = styleOf(r.font);
-            const run = { t: r.str, b: st.b, i: st.i, sup: r.size < 0.9 * L.size && L.y - r.y > 0.1 * L.size };
-            const last = L.runs[L.runs.length - 1];
-            const gap = prevEnd === null ? 0 : r.x - prevEnd;
-            let sp = last && gap > 0.15 * Math.min(r.size, L.size) && !/\s$/.test(last.t) && !/^\s/.test(run.t);
-            if (last && last.b === run.b && last.i === run.i && last.sup === run.sup) last.t += (sp ? ' ' : '') + run.t;
-            else { if (sp) last.t += ' '; L.runs.push(run); }
-            prevEnd = r.x + r.w;
-          }
-          L.runs.forEach(r => r.t = r.t.replace(/\s+/g, ' '));
-          L.runs[0].t = L.runs[0].t.replace(/^\s+/, '');
-          L.runs[L.runs.length - 1].t = L.runs[L.runs.length - 1].t.replace(/\s+$/, '');
-          L.runs = L.runs.filter(r => r.t);
-          L.text = L.runs.map(r => r.t).join('');
-          L.bold = L.runs.every(r => r.b || !r.t.trim());
-          L.top = L.y - L.size;
-        }
+        lines = pageLines(raw.filter(r => !inFig(r)), styleOf, pn);   // texto dentro da figura já está na imagem
       }
-      pages.push({ pn, vp, W, H, lines: lines.filter(L => L.text), figs });
+      pages.push({ pn, vp, W, H, lines, figs, cols: Math.max(1, ...lines.map(L => L.col + 1)) });
       page.cleanup();
     }
 
-    // 2) cabeçalhos, rodapés e números de página
-    const allLines = () => pages.flatMap(P => P.lines);
+    // 2) estatísticas do texto principal
+    const flat = () => pages.flatMap(P => P.lines);
+    if (!flat().length && !pages.some(P => P.figs.length) && !cover) throw new Error('Não encontrei texto nem imagens neste PDF.');
+    const sizeChars = new Map();
+    for (const L of flat()) { const k = Math.round(L.size * 2) / 2; sizeChars.set(k, (sizeChars.get(k) || 0) + L.text.length); }
+    const body = sizeChars.size ? [...sizeChars.entries()].sort((a, b) => b[1] - a[1])[0][0] : 10;
+    const cls = L => L.hd || L.size >= body * 1.12 ? 'h' : L.size < body * 0.88 ? 's' : 'b';
+
+    // 3) cabeçalhos, rodapés e números de página repetidos
     if (dropHf && N > 1) {
       const key = L => L.text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
       const zone = (P, L) => L.y < P.H * 0.1 ? 't' : L.top > P.H * 0.9 ? 'b' : null;
-      const freq = new Map();
-      for (const P of pages) for (const k of new Set(P.lines.filter(L => zone(P, L)).map(L => zone(P, L) + key(L)))) freq.set(k, (freq.get(k) || 0) + 1);
-      const min = Math.max(3, N * 0.25);
+      const seen = new Map();   // zona+texto -> posições verticais onde apareceu
+      for (const P of pages) for (const L of P.lines) { const z = zone(P, L); if (z) { const k = z + key(L); (seen.get(k) || seen.set(k, []).get(k)).push([P.pn, z === 't' ? L.y : P.H - L.y]); } }
+      const running = new Set();
+      for (const [k, v] of seen) {
+        const ys = v.map(q => q[1]), pn = new Set(v.map(q => q[0]));
+        if (pn.size >= 3 && Math.max(...ys) - Math.min(...ys) < 4 + 0.01 * pages[0].H) running.add(k);
+      }
       for (const P of pages) P.lines = P.lines.filter(L => {
         const z = zone(P, L);
         if (!z) return true;
         if (/^[\W\d_]*$|^\W*[ivxlcdm]+\W*$/i.test(L.text) && L.text.length < 12) return false;   // só número de página
-        return !(freq.get(z + key(L)) >= min && N >= 3);
+        return !(N >= 3 && running.has(z + key(L)));
       });
     }
-    const lines = allLines();
-    if (!lines.length && !pages.some(P => P.figs.length) && !cover) throw new Error('Não encontrei texto nem imagens neste PDF.');
 
-    // 3) medidas do texto principal
-    const sizeChars = new Map();
-    for (const L of lines) { const k = Math.round(L.size * 2) / 2; sizeChars.set(k, (sizeChars.get(k) || 0) + L.text.length); }
-    const body = lines.length ? [...sizeChars.entries()].sort((a, b) => b[1] - a[1])[0][0] : 10;
-    const cls = L => L.size >= body * 1.12 ? 'h' : L.size < body * 0.88 ? 's' : 'b';
-    const pitches = [];
-    for (const P of pages) for (let i = 1; i < P.lines.length; i++) {
-      const A = P.lines[i - 1], B = P.lines[i];
-      if (cls(A) === 'b' && cls(B) === 'b' && B.y > A.y) { const r = (B.y - A.y) / B.size; if (r < 3) pitches.push(r); }
+    // sumário impresso: páginas cheias de "título .... número" saem do texto e servem de pista para o sumário
+    const printedToc = [], tocRe = /^(sum[áa]rio|[ií]ndice|contents|table of contents)$/i;
+    const isTocPage = P => {
+      const ls = P.lines;
+      if (ls.length < 4) return false;
+      const endsNum = L => TOC_NUM.test(L.text) && L.text.length <= 130 || /^\d{1,4}$/.test(L.text);
+      const lead = ls.filter(L => TOC_LEAD.test(L.text)).length, num = ls.filter(L => !TOC_LEAD.test(L.text) && endsNum(L)).length;
+      if (lead >= 4 && lead >= 0.5 * ls.length) return true;
+      const rest = ls.filter(L => !TOC_LEAD.test(L.text) && !endsNum(L));   // linhas de título que continuam na seguinte
+      return lead + num >= 8 && lead + num >= 0.35 * ls.length && rest.filter(L => TERMINAL.test(L.text)).length <= 0.12 * ls.length;
+    };
+    const tocFlags = pages.map(isTocPage);
+    for (let i = 1; i < pages.length - 1; i++) if (!tocFlags[i] && tocFlags[i - 1] && tocFlags[i + 1] && pages[i].lines.length < 60) tocFlags[i] = true;   // página de sumário no meio de outras
+    pages.forEach((P, i) => {
+      if (!tocFlags[i]) { if (tocFlags[i + 1] && P.lines.length && tocRe.test(P.lines[P.lines.length - 1].text.trim())) P.lines.pop(); return; }
+      const minX = Math.min(...P.lines.map(L => L.x0)); let buf = [];
+      for (const L of P.lines) {
+        if (tocRe.test(L.text.trim())) continue;
+        buf.push(L);
+        if (TOC_LEAD.test(L.text) || TOC_NUM.test(L.text) || /^\d{1,4}$/.test(L.text)) {
+          const title = buf.map(q => q.text).join(' ').replace(TOC_LEAD, '').replace(/\s*\b\d{1,4}$/, '').replace(/[\s.…]+$/, '').trim();
+          if (title) printedToc.push({ title, indent: buf[0].x0 - minX, size: buf[0].size });
+          buf = [];
+        }
+      }
+      P.lines = [];
+    });
+
+    // margens, justificação e espaçamento por página/coluna (com a média do livro quando a página tem pouco texto)
+    const stat = (ls, fallback) => {
+      const bl = ls.filter(L => cls(L) === 'b' && L.text.length >= 20);
+      if (bl.length < 8) return fallback || null;
+      const Lm = modeOf(bl.map(L => [L.x0, L.text.length]), 2);
+      const x1s = bl.map(L => L.x1).sort((a, b) => a - b), Rm = x1s[Math.floor(0.9 * (x1s.length - 1))];
+      const just = bl.filter(L => L.x1 >= Rm - 0.6 * L.size).length >= 0.45 * bl.length;
+      const dys = [];
+      for (let i = 1; i < ls.length; i++) { const dy = ls[i].y - ls[i - 1].y, s = ls[i].size; if (cls(ls[i]) === 'b' && cls(ls[i - 1]) === 'b' && dy > 0.8 * s && dy < 1.9 * s) dys.push([dy, 1]); }
+      return { Lm, Rm, just, pitch: dys.length >= 4 ? modeOf(dys, 0.5) : body * 1.2 };
+    };
+    const glob = new Map();
+    for (const par of [0, 1]) for (let c = 0; c < 4; c++) glob.set(par + '|' + c, stat(pages.filter(P => P.pn % 2 === par).flatMap(P => P.lines.filter(L => L.col === c && !L.span))));
+    const globAll = stat(flat().filter(L => !L.span)) || { Lm: 0, Rm: 1e4, just: false, pitch: body * 1.2 };
+    for (const P of pages) {
+      P.st = [];
+      for (let c = 0; c < Math.max(1, P.cols); c++) P.st[c] = stat(P.lines.filter(L => L.col === c && !L.span), glob.get(P.pn % 2 + '|' + c) || globAll) || globAll;
     }
-    const pitch = median(pitches) || 1.2;
-    for (const P of pages) for (const L of P.lines) {   // borda direita da coluna de cada linha
-      const col = P.lines.filter(X => Math.abs(X.x0 - L.x0) < 4 * body);
-      L.right = Math.max(...col.map(X => X.x1)); L.left = Math.min(...col.map(X => X.x0));
-      L.short = col.length >= 3 && L.x1 < L.right - 0.1 * (L.right - L.left);
-    }
+    const pitch = median(pages.flatMap(P => P.st.map(s => s.pitch))) || body * 1.2;
+    // títulos do tamanho do texto: maiúsculas/versaletes centralizados, negrito isolado ou "Capítulo …"
+    const centeredL = L => { const s = pages[L.pn - 1].st[L.col] || globAll, lg = L.x0 - s.Lm, rg = s.Rm - L.x1; return lg > 0.6 * L.size && Math.abs(lg - rg) < 1.2 * L.size; };
+    for (const P of pages) P.lines.forEach((L, i) => {
+      if (cls(L) !== 'b' || L.span) return;
+      const t = L.text.trim(), words = t.split(/\s+/).length;
+      if (t.length > 120 || LIST_START.test(t)) return;
+      const prev = P.lines[i - 1], s = P.st[L.col] || globAll;
+      const isolated = !prev || prev.col !== L.col || prev.hd || L.y - prev.y > s.pitch * 1.15;
+      const chap = CHAP_RE.test(t) && words <= 14;
+      if (TERMINAL.test(t) && !chap) return;
+      const cen = centeredL(L);
+      if ((L.upper && t.length > 2 && words <= 20 && (cen || L.bold)) || (L.bold && words <= 12 && !/[,;:]$/.test(t) && isolated) || (chap && (cen || L.bold || L.upper))) L.hd = true;
+    });
     const words = new Set();
-    for (const L of lines) for (const w of L.text.toLowerCase().split(/[^\p{L}\p{N}-]+/u)) if (w) words.add(w);
+    for (const L of flat()) for (const w of L.text.toLowerCase().split(/[^\p{L}\p{N}-]+/u)) if (w) words.add(w);
 
     // 4) linhas -> blocos (parágrafos, títulos, figuras, notas)
     const blocks = [];
-    let cur = null, P = null, notes = [];
-    const close = () => { if (cur) blocks.push(cur); cur = null; if (notes.length) { blocks.push(...notes); notes = []; } };
+    let cur = null, last = null;
+    const close = () => { if (cur) blocks.push(cur); cur = null; last = null; };
     const append = (B, L) => {
-      const last = B.runs[B.runs.length - 1];
-      if (last) {
-        const m = last.t.match(/(\p{L}+)-$/u), first = (L.text.match(/^\p{L}+/u) || [''])[0];
+      const lastRun = B.runs[B.runs.length - 1];
+      if (lastRun) {
+        const m = lastRun.t.match(/(\p{L}+)-$/u), first = (L.text.match(/^\p{L}+/u) || [''])[0];
         if (m && /^\p{Ll}/u.test(first) && !CLITIC.has(first.toLowerCase()) && (words.has((m[1] + first).toLowerCase()) || !words.has((m[1] + '-' + first).toLowerCase())))
-          last.t = last.t.slice(0, -1);   // hifenização de fim de linha
-        else if (!/[\s/–—-]$/.test(last.t) || /\s-$/.test(last.t)) last.t += ' ';
+          lastRun.t = lastRun.t.slice(0, -1);   // hifenização de fim de linha
+        else if (!/[\s/–—-]$/.test(lastRun.t) || /\s-$/.test(lastRun.t)) { if (!plainRun(lastRun) && plainRun(L.runs[0])) L.runs[0] = { ...L.runs[0], t: ' ' + L.runs[0].t }; else lastRun.t += ' '; }
       }
       for (const r of L.runs) {
         const l = B.runs[B.runs.length - 1];
@@ -872,75 +1009,117 @@
       }
       B.lines.push(L);
     };
-    const sameFlow = (A, B) => A.page === B.page && B.y > A.y && B.y - A.y < pitch * Math.max(A.size, B.size) * 1.45;
-    const startsNew = (L, Nx) => {
-      if (!cur || !P) return true;
-      const a = cls(P), b = cls(L), s = L.size;
-      if (a !== b) return true;
-      if (b === 'h') return !(P.page === L.page && L.y > P.y && L.y - P.y < 2.2 * s && Math.abs(P.size - L.size) < 0.1 * s);
-      if (LIST_START.test(L.text)) return true;
-      const flow = P.page === L.page && L.y > P.y;
-      if (flow && L.y - P.y > pitch * Math.max(P.size, s) * 1.45) return true;
-      if (flow && L.x0 - P.x0 > 0.6 * s && L.x0 - P.x0 < 0.25 * L.right) return true;          // recuo de 1ª linha
-      if (flow && cur.lines.length >= 2 && P.x0 - L.x0 > 0.6 * s) return true;                    // fim de citação recuada
-      if (Nx && sameFlow(L, Nx) && L.x0 - Nx.x0 > 0.6 * s && L.x0 - Nx.x0 < 0.25 * L.right) return true;
-      if (P.short && SENT_END.test(P.text)) return true;
+    // a linha B começa um bloco novo depois da linha A?
+    const breaks = (blk, A, B) => {
+      const ca = cls(A), cb = cls(B);
+      if (ca !== cb) return true;
+      const samePage = A.pn === B.pn && A.col === B.col;
+      if (cb === 'h') return !(samePage && B.y > A.y && B.y - A.y < 2.6 * B.size && Math.abs(A.size - B.size) < 0.1 * B.size && !!A.hd === !!B.hd);
+      const sa = pages[A.pn - 1].st[A.col] || globAll, sb = pages[B.pn - 1].st[B.col] || globAll, s = B.size;
+      const pc = sb.pitch * Math.min(1, s / body);
+      if (samePage && B.y > A.y && B.y - A.y > pc * 1.25 + 0.6) return true;            // espaço vertical maior que o normal
+      if (LIST_START.test(B.text)) return true;
+      const shortA = A.x1 < sa.Rm - (sa.just ? 1.0 * s : 0.22 * (sa.Rm - sa.Lm)), endA = TERMINAL.test(A.text);
+      const lower = /^\p{Ll}/u.test(B.text);
+      if (blk.list) return (shortA && endA && !lower) || B.x0 < blk.lines[0].x0 - 0.8 * s;
+      if (lower && !endA) return false;
+      const indent = B.x0 - sb.Lm, AI = A.x0 - sa.Lm;
+      if (indent > 0.8 * s && !(AI > 0.8 * s && Math.abs(B.x0 - A.x0) < 0.5 * s)) return true;   // recuo de 1ª linha
+      if (indent < -0.6 * s && !(A.x0 - B.x0 < 0.6 * s && AI < -0.6 * s)) return true;          // 1ª linha pendurada
+      if (shortA && endA && !lower) return true;                                                // linha curta que fecha a frase
       return false;
     };
-    for (const pg of pages) {
-      const ls = pg.lines;
-      // notas de rodapé: bloco final de linhas pequenas na metade de baixo da página
-      let k = ls.length;
-      while (k > 0 && cls(ls[k - 1]) === 's' && ls[k - 1].y > pg.H * 0.55) k--;
-      const bodyLines = ls.slice(0, k), noteLines = ls.slice(k);
-      const seq = [...bodyLines];
-      for (const f of pg.figs) {
+    const attachNotes = (P, pageBlocks, noteLines) => {
+      // agrupa as linhas pequenas do pé da página em notas numeradas
+      const notes = []; let expect = null;
+      for (const L of noteLines) {
+        const m = L.text.match(NOTE_LABEL), n = m && /^\d/.test(m[1]) ? +m[1] : null;
+        if (m && (!notes.length || (n !== null && (expect === null || n === expect)) || (n === null))) {
+          notes.push({ label: m[1], runs: [], lines: [], pn: P.pn }); expect = n !== null ? n + 1 : null;
+        }
+        if (!notes.length) notes.push({ label: '', runs: [], lines: [], pn: P.pn });
+        append(notes[notes.length - 1], L);
+      }
+      for (const nt of notes) {
+        if (nt.label && nt.runs.length) {   // tira o número do começo (o link de volta já o mostra)
+          const r0 = nt.runs[0]; r0.t = r0.t.replace(nt.label, '').replace(/^[\s.)]+/, '');
+          if (!r0.t) nt.runs.shift();
+        }
+        const mark = pageBlocks.flatMap(B => (B.runs || []).filter(r => r.sup > 0 && r.pn === P.pn && !r.noteId).map(r => ({ B, r })))
+          .find(x => x.r.t.trim() === nt.label);
+        if (mark) { nt.id = `n${P.pn}-${nt.label.replace(/\W/g, 'x')}-${blocks.length}`; mark.r.noteId = nt.id; mark.r.t = mark.r.t.trim(); (mark.B.notes = mark.B.notes || []).push(nt); nt.linked = true; }
+        else {
+          // número da nota colado no fim de um título (sem sobrescrito): vira marcador
+          const txt = B => B.runs.map(r => r.t).join(''), hB = /^\d+$/.test(nt.label) && pageBlocks.find(B => B.t === 'h' && B.runs.length && new RegExp('\\D\\s?' + nt.label + '\\s*$').test(txt(B)));
+          if (hB) {
+            const lr = hB.runs[hB.runs.length - 1], run = { t: nt.label, b: false, i: false, sup: 1, pn: P.pn };
+            lr.t = lr.t.replace(new RegExp('\\s?' + nt.label + '\\s*$'), ''); hB.runs.push(run);
+            nt.id = `n${P.pn}-${nt.label}-${blocks.length}`; run.noteId = nt.id; nt.linked = true; (hB.notes = hB.notes || []).push(nt);
+          } else { const B = pageBlocks[pageBlocks.length - 1]; if (B) (B.notes = B.notes || []).push(nt); }
+        }
+      }
+    };
+    for (const P of pages) {
+      let ls = P.lines, noteLines = [];
+      if (P.cols === 1) {   // notas de rodapé: bloco final de linhas pequenas na metade de baixo, começando por um número ou símbolo
+        let k = ls.length;
+        while (k > 0 && cls(ls[k - 1]) === 's' && ls[k - 1].y > P.H * 0.5) k--;
+        if (k < ls.length && NOTE_LABEL.test(ls[k].text) && ls.length - k < 0.5 * ls.length + 3) { noteLines = ls.slice(k); ls = ls.slice(0, k); }
+      }
+      const seq = [...ls];
+      for (const f of P.figs) {
         const at = seq.findIndex(x => !x.t && x.top >= f.top - 1);
         seq.splice(at < 0 ? seq.length : at, 0, f);
       }
+      const startIdx = blocks.length;
       for (let i = 0; i < seq.length; i++) {
         const L = seq[i];
-        if (L.t === 'img') { close(); blocks.push({ ...L, pageNo: pg.pn, top: L.top }); P = null; continue; }
-        if (startsNew(L, seq[i + 1] && !seq[i + 1].t ? seq[i + 1] : null)) {
+        if (L.t === 'img') { close(); blocks.push({ ...L, pageNo: P.pn, top: L.top }); continue; }
+        if (!cur || breaks(cur, last, L)) {
           close();
-          cur = { t: cls(L) === 'h' ? 'h' : 'p', small: cls(L) === 's', runs: [], lines: [], pageNo: pg.pn, top: L.top };
+          const c = cls(L);
+          cur = { t: c === 'h' ? 'h' : 'p', small: c === 's', runs: [], lines: [], pageNo: P.pn, top: L.top, list: c === 'b' && LIST_START.test(L.text) };
         }
-        append(cur, L); P = L;
+        append(cur, L); last = L;
       }
-      for (const L of noteLines) {
-        if (!notes.length || /^(\d+|[*†‡§])/.test(L.text) || notes[notes.length - 1].lines[0].page !== L.page)
-          notes.push({ t: 'p', small: true, runs: [], lines: [], pageNo: pg.pn, top: L.top });
-        append(notes[notes.length - 1], L);
-      }
+      if (noteLines.length) attachNotes(P, [...blocks.slice(startIdx), ...(cur ? [cur] : [])].filter(B => B.t !== 'img'), noteLines);
     }
     close();
-
     // capitulares (letra grande isolada) voltam para o parágrafo seguinte
     for (let i = blocks.length - 2; i >= 0; i--) {
       const B = blocks[i], C = blocks[i + 1];
-      if (B.t === 'h' && C.t === 'p' && /^\p{L}{1,2}$/u.test(B.runs.map(r => r.t).join('').trim())) {
-        C.runs.unshift({ t: B.runs.map(r => r.t).join('').trim(), b: false, i: false, sup: false });
+      if (B.t === 'h' && C.t === 'p' && B.runs.length && /^\p{L}{1,2}$/u.test(B.runs.map(r => r.t).join('').trim())) {
+        C.runs.unshift({ t: B.runs.map(r => r.t).join('').trim(), b: false, i: false, sup: 0, pn: B.pageNo });
         blocks.splice(i, 1);
       }
     }
-    // níveis de título por tamanho; título longo demais vira parágrafo
-    const hs = [...new Set(blocks.filter(B => B.t === 'h').map(B => Math.round(Math.max(...B.lines.map(L => L.size)))))].sort((a, b) => b - a);
+    // níveis de título pelo tamanho; título longo demais vira parágrafo
+    const textOf = B => B.runs ? B.runs.map(r => r.t).join('') : '';
+    const hsize = B => Math.round(Math.max(...B.lines.map(q => q.size)));
+    const hs = [...new Set(blocks.filter(B => B.t === 'h').map(hsize))].sort((a, b) => b - a);
     for (const B of blocks) {
       if (B.t === 'h') {
-        if (B.runs.map(r => r.t).join('').split(' ').length > 30) { B.t = 'p'; continue; }
-        B.lvl = Math.min(3, hs.indexOf(Math.round(Math.max(...B.lines.map(L => L.size)))) + 1);
-      } else if (B.t === 'p' && !B.small && B.lines.length === 1 && B.lines[0].bold) {
-        const t = B.runs.map(r => r.t).join('').trim();
-        if (t.split(' ').length <= 12 && !/[.,;:]$/.test(t)) { B.t = 'h'; B.lvl = Math.min(4, hs.length + 1); }   // linha isolada em negrito
+        if (textOf(B).split(' ').length > 30) { B.t = 'p'; B.lines.forEach(L => { L.hd = false; }); continue; }
+        B.lvl = Math.min(4, hs.indexOf(hsize(B)) + 1);
       }
       if (B.t === 'p' && B.lines.length) {
-        const L0 = B.lines[0], w = L0.right - L0.left;
-        B.center = B.lines.every(L => L.x0 - L.left > Math.max(2 * L.size, 0.06 * w) && Math.abs((L.x0 - L.left) - (L.right - L.x1)) < Math.max(2 * L.size, 0.05 * w));
-        B.quote = !B.center && B.lines.every(L => L.x0 - L.left > 1.5 * L.size) && B.lines.length > 1;
+        const L0 = B.lines[0], s = pages[L0.pn - 1].st[L0.col] || globAll;
+        B.center = B.lines.every(L => L.x0 - s.Lm > Math.max(2 * L.size, 0.06 * (s.Rm - s.Lm)) && Math.abs((L.x0 - s.Lm) - (s.Rm - L.x1)) < Math.max(2 * L.size, 0.05 * (s.Rm - s.Lm)));
+        B.quote = !B.center && !B.list && B.lines.length > 1 && B.lines.every(L => L.x0 - s.Lm > 1.5 * L.size);
+      }
+    }
+    // títulos de várias linhas com o mesmo nível seguidos (ex.: "CAPÍTULO II" + "Do governo…") viram um só
+    for (let i = blocks.length - 2; i >= 0; i--) {
+      const B = blocks[i], C = blocks[i + 1];
+      if (B.t === 'h' && C.t === 'h' && B.pageNo === C.pageNo && CHAP_RE.test(textOf(B).trim()) && B.runs.length && C.runs.length && textOf(B).trim().split(' ').length <= 3) {
+        B.lvl = Math.min(B.lvl, C.lvl); B.runs.push({ t: ' — ', b: false, i: false, sup: 0, pn: B.pageNo }, ...C.runs); B.lines.push(...C.lines); blocks.splice(i + 1, 1);
       }
     }
 
-    // 5) capítulos e sumário: marcadores do PDF; se não houver, os títulos
+    // 5) capítulos e sumário: marcadores do PDF; senão o sumário impresso; senão os títulos
+    const norm = t => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const heading = B => B.t === 'h' || (B.t === 'p' && B.lines.length <= 2 && textOf(B).length < 90);
+    let entries = [];
     const toc = [];
     try {
       const outline = await doc.getOutline();
@@ -956,34 +1135,48 @@
             }
           } catch (e) {}
           const title = (it.title || '').replace(/\s+/g, ' ').trim();
-          if (title && pageIdx != null && pageIdx >= 0 && pageIdx < N) toc.push({ title, level, pageNo: pageIdx + 1, top });
-          if (level < 3) await walkOut(it.items, level + 1);
+          if (title && !/^(untitled|sem t[íi]tulo)$/i.test(title) && pageIdx != null && pageIdx >= 0 && pageIdx < N) toc.push({ title, level, pageNo: pageIdx + 1, top });
+          await walkOut(it.items, level + 1);
         }
       };
       await walkOut(outline, 0);
     } catch (e) { console.warn('sem marcadores', e); }
 
-    const norm = t => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-    const textOf = B => B.runs ? B.runs.map(r => r.t).join('') : '';
     const posOf = e => {   // título com o mesmo texto na página; senão, o primeiro bloco abaixo do ponto marcado
       const t = norm(e.title);
-      const h = blocks.findIndex(B => B.pageNo === e.pageNo && B.t === 'h' && t && (norm(textOf(B)) === t || norm(textOf(B)).includes(t) || t.includes(norm(textOf(B)))));
+      const h = blocks.findIndex(B => B.pageNo === e.pageNo && heading(B) && t && (norm(textOf(B)) === t || (norm(textOf(B)).length > 3 && (norm(textOf(B)).includes(t) || t.includes(norm(textOf(B)))))));
       if (h >= 0) return h;
       return blocks.findIndex(B => B.pageNo > e.pageNo || (B.pageNo === e.pageNo && (e.top == null || B.top >= e.top - 2 * body)));
     };
-    let entries = [], breaks = new Set();
     if (toc.length) {
-      const base = toc.filter(e => e.level === 0).length === 1 && toc.some(e => e.level === 1) ? 1 : 0;
-      entries = toc.filter(e => e.level >= base && e.level <= base + 1).map(e => ({ ...e, level: e.level - base, at: posOf(e) })).filter(e => e.at >= 0);
-      entries.filter(e => e.level === 0).forEach(e => breaks.add(e.at));
-    } else {
+      let t = toc;
+      const minL = Math.min(...t.map(e => e.level));
+      if (t.filter(e => e.level === minL).length === 1 && t.some(e => e.level > minL)) t = t.filter(e => e.level > minL);   // capa-título envolvendo tudo
+      const base = Math.min(...t.map(e => e.level));
+      entries = t.map(e => ({ ...e, level: Math.min(3, e.level - base), at: posOf(e) })).filter(e => e.at >= 0);
+    } else if (printedToc.length >= 4) {   // casa cada entrada do sumário impresso com o título no texto, na ordem
+      const minI = Math.min(...printedToc.map(e => e.indent)); let from = 0, hit = [];
+      for (const e of printedToc) {
+        const t = norm(e.title); if (!t) continue;
+        const k = blocks.findIndex((B, i) => i >= from && heading(B) && B.t !== 'img' && (norm(textOf(B)) === t || (t.length > 6 && norm(textOf(B)).startsWith(t))));
+        if (k >= 0) { hit.push({ title: e.title, level: Math.min(3, Math.round((e.indent - minI) / (1.5 * body))), at: k }); from = k + 1; }
+      }
+      if (hit.length >= 3 && hit.length >= 0.6 * printedToc.length) entries = hit;
+    }
+    if (!entries.length) {
       let lvl = 0;
       for (let l = 1; l <= 4 && !lvl; l++) if (blocks.filter(B => B.t === 'h' && B.lvl === l).length >= 2) lvl = l;
-      if (lvl) blocks.forEach((B, i) => {
-        if (B.t === 'h' && B.lvl <= lvl + 1) entries.push({ title: B.runs.map(r => r.t).join('').trim(), level: B.lvl <= lvl ? 0 : 1, at: i });
-        if (B.t === 'h' && B.lvl <= lvl) breaks.add(i);
-      });
+      if (lvl) blocks.forEach((B, i) => { if (B.t === 'h' && B.lvl <= lvl + 1) entries.push({ title: textOf(B).trim(), level: B.lvl <= lvl ? 0 : 1, at: i }); });
     }
+    entries = entries.map((e, i) => ({ e, i })).sort((a, b) => a.e.at - b.e.at || a.i - b.i).map(x => x.e);
+    entries = entries.filter((e, i) => !(i && entries[i - 1].at === e.at && norm(entries[i - 1].title) === norm(e.title)));
+
+    // quais entradas abrem um arquivo novo: o nível mais raso que dê capítulos de tamanho razoável; "Parte/Livro" sempre abre
+    const secChars = i => { let n = 0; for (let k = i; k < blocks.length && (k === i || !entries.some(e => e.at === k)); k++) n += textOf(blocks[k]).length; return n; };
+    const total = blocks.reduce((n, B) => n + textOf(B).length, 0);
+    let splitLvl = 0;
+    for (let l = 0; l <= 3; l++) { const c = entries.filter(e => e.level <= l).length; splitLvl = l; if (c >= 2 && total / c <= 60000) break; }
+    const breaks_ = new Set(entries.filter(e => e.level <= splitLvl || PART_RE.test(e.title)).map(e => e.at));
 
     // 6) metadados
     let info = {};
@@ -993,35 +1186,42 @@
     if (!title || title.length < 2 || /^(microsoft (word|powerpoint) - |untitled|sem t[ií]tulo)|\.(docx?|pdf|indd|tex|dvi|qxd|odt|rtf)$/i.test(title))
       title = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
     const authors = clean(info.Author) ? cleanAuthors(clean(info.Author)) : [];
-    const lang = guessLang(' ' + lines.slice(0, 2000).map(L => L.text).join(' ') + ' ');
+    const lang = guessLang(' ' + flat().slice(0, 3000).map(L => L.text).join(' ') + ' ');
 
     // 7) XHTML
     say('Montando o EPUB…'); await tick();
     const runsHtml = runs => runs.map(r => {
       let h = xesc(r.t);
-      if (r.sup) h = `<sup>${h}</sup>`;
+      if (r.sup > 0) h = `<sup>${h}</sup>`; else if (r.sup < 0) h = `<sub>${h}</sub>`;
       if (r.i) h = `<i>${h}</i>`;
       if (r.b) h = `<b>${h}</b>`;
+      if (r.noteId) h = `<a epub:type="noteref" id="r-${r.noteId}" href="#${r.noteId}">${h}</a>`;
       return h;
-    }).join('').replace(/<\/(b|i|sup)><\1>/g, '');
-    const files = [];   // { name, title, html }
-    let curFile = null, fileOf = new Array(blocks.length), afterBreak = true;
-    const newFile = () => { curFile = { name: `c${String(files.length + 1).padStart(3, '0')}.xhtml`, html: [] }; files.push(curFile); afterBreak = true; };
+    }).join('').replace(/<\/(b|i|sup|sub)><\1>/g, '');
+    const files = [];   // { name, title, html, notes }
+    let curFile = null, afterBreak = true;
+    const fileOf = new Array(blocks.length), fileStart = new Set();
+    const newFile = () => { curFile = { name: `c${String(files.length + 1).padStart(3, '0')}.xhtml`, html: [], notes: [], size: 0 }; files.push(curFile); afterBreak = true; };
     const ids = new Map(entries.map((e, k) => [e.at, 'p' + k]));
     blocks.forEach((B, i) => {
-      if (!curFile || (breaks.has(i) && curFile.html.length) || (curFile.size > 200000 && B.t === 'p')) newFile();
+      if (!curFile || (breaks_.has(i) && curFile.html.length && (curFile.size > 6000 || PART_RE.test((entries.find(e => e.at === i) || {}).title || ''))) || (curFile.size > 150000 && B.t === 'p' && !B.list)) newFile();
+      if (!curFile.html.length) fileStart.add(i);
       fileOf[i] = curFile.name;
       const id = ids.has(i) ? ` id="${ids.get(i)}"` : '';
       let h;
       if (B.t === 'img') h = `<div class="${B.page ? 'pg' : 'fig'}"${id}><img src="${B.src}" alt=""/></div>`;
       else if (B.t === 'h') h = `<h${B.lvl}${id}>${runsHtml(B.runs.map(r => ({ ...r, b: false })))}</h${B.lvl}>`;
       else {
-        const c = [B.small && 's', B.center && 'c', B.quote && 'q', afterBreak && 'f'].filter(Boolean).join(' ');
+        const c = [B.small && 's', B.center && 'c', B.quote && 'q', B.list && 'l', afterBreak && 'f'].filter(Boolean).join(' ');
         h = `<p${id}${c ? ` class="${c}"` : ''}>${runsHtml(B.runs)}</p>`;
       }
       afterBreak = B.t !== 'p';
-      curFile.html.push(h); curFile.size = (curFile.size || 0) + h.length;
-      if (!curFile.title && B.t === 'h') curFile.title = B.runs.map(r => r.t).join('').trim();
+      curFile.html.push(h); curFile.size += textOf(B).length + 20;
+      for (const nt of B.notes || []) {
+        if (nt.linked) curFile.notes.push(`<aside epub:type="footnote" id="${nt.id}"><p><a href="#r-${nt.id}">${xesc(nt.label)}</a> ${runsHtml(nt.runs)}</p></aside>`);
+        else curFile.html.push(`<p class="s">${runsHtml(nt.runs)}</p>`);
+      }
+      if (!curFile.title && B.t === 'h') curFile.title = textOf(B).trim();
     });
     if (!files.length) newFile();
     const page = (t, bodyHtml, extra = '') => `<?xml version="1.0" encoding="UTF-8"?>
@@ -1033,15 +1233,19 @@ ${bodyHtml}
 </body>
 </html>`;
 
-    // sumário
+    // sumário (em árvore, pelos níveis)
     const nav = entries.length ? entries : [{ title, level: 0, at: 0 }];
-    const href = e => (fileOf[e.at] || files[0].name) + (ids.has(e.at) && breaks.has(e.at) === false ? '#' + ids.get(e.at) : '');
-    const tree = [];
-    for (const e of nav) { if (e.level === 0 || !tree.length) tree.push({ e, kids: [] }); else tree[tree.length - 1].kids.push({ e, kids: [] }); }
+    const href = e => (fileOf[e.at] || files[0].name) + (fileStart.has(e.at) || !ids.has(e.at) ? '' : '#' + ids.get(e.at));
+    const tree = [], stack = [];
+    for (const e of nav) {
+      const node = { e, kids: [] };
+      while (stack.length && stack[stack.length - 1].e.level >= e.level) stack.pop();
+      (stack.length ? stack[stack.length - 1].kids : tree).push(node); stack.push(node);
+    }
     const navOl = list => `<ol>${list.map(n => `<li><a href="${href(n.e)}">${xesc(n.e.title)}</a>${n.kids.length ? navOl(n.kids) : ''}</li>`).join('')}</ol>`;
-    let order = 0;
-    const ncx = list => list.map(n => `<navPoint id="n${++order}" playOrder="${order}"><navLabel><text>${xesc(n.e.title)}</text></navLabel><content src="${href(n.e)}"/>${ncx(n.kids)}</navPoint>`).join('');
-    const tocName = { pt: 'Sumário', en: 'Contents', es: 'Índice' }[lang];
+    let order = 0, pid = 0; const played = new Map();
+    const ncx = list => list.map(n => { const h = href(n.e), o = played.get(h) || played.set(h, ++order).get(h); return `<navPoint id="n${++pid}" playOrder="${o}"><navLabel><text>${xesc(n.e.title)}</text></navLabel><content src="${h}"/>${ncx(n.kids)}</navPoint>`; }).join('');
+    const tocName = { pt: 'Sumário', en: 'Contents', es: 'Índice', fr: 'Sommaire', de: 'Inhalt', it: 'Indice' }[lang];
 
     // 8) pacote
     const id = 'urn:uuid:' + uuid();
@@ -1051,13 +1255,18 @@ ${bodyHtml}
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
     zip.file('OEBPS/style.css', `body { margin: 0 4%; line-height: 1.45; }
 p { margin: 0; text-indent: 1.5em; text-align: justify; }
-p.f, p.c, p.s { text-indent: 0; }
+p.f, p.c, p.s, p.l { text-indent: 0; }
 p.c { text-align: center; }
 p.q { margin: .4em 2em; text-indent: 0; }
+p.l { margin: .25em 0 .25em 1em; text-align: left; }
 p.s { font-size: .85em; margin-top: .3em; text-align: left; }
 h1, h2, h3, h4 { text-align: center; line-height: 1.25; margin: 1.6em 0 .8em; page-break-after: avoid; }
 h1 { font-size: 1.6em; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; } h4 { font-size: 1em; }
-sup { font-size: .7em; line-height: 0; }
+sup, sub { font-size: .7em; line-height: 0; }
+a { color: inherit; text-decoration: none; }
+a[epub|type~="noteref"] { vertical-align: super; font-size: .75em; }
+aside { font-size: .85em; margin: .3em 0; }
+aside p { text-indent: 0; text-align: left; }
 .fig { text-align: center; margin: 1em 0; }
 .fig img { max-width: 100%; }
 .pg { text-align: center; margin: 0; page-break-before: always; page-break-after: always; }
@@ -1074,7 +1283,7 @@ sup { font-size: .7em; line-height: 0; }
     }
     images.forEach((im, i) => { zip.file('OEBPS/' + im.name, im.bytes); man.push(`<item id="i${i + 1}" href="${im.name}" media-type="image/jpeg"/>`); });
     files.forEach((f, i) => {
-      zip.file('OEBPS/' + f.name, page(f.title || title, f.html.join('\n')));
+      zip.file('OEBPS/' + f.name, page(f.title || title, f.html.join('\n') + (f.notes.length ? '\n' + f.notes.join('\n') : '')));
       man.push(`<item id="x${i + 1}" href="${f.name}" media-type="application/xhtml+xml"/>`);
       spine.push(`<itemref idref="x${i + 1}"/>`);
     });
