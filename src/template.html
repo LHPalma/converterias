@@ -903,6 +903,16 @@
     return out;
   }
 
+  // vetor 16x16 (tinta = valor alto, normalizado) de um recorte, para comparar formas de glifos
+  function shapeVec(cv, x, y, w, h) {
+    const N = 16, t = document.createElement('canvas'); t.width = N; t.height = N;
+    const c = t.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, N, N); c.drawImage(cv, x, y, w, h, 0, 0, N, N);
+    const d = c.getImageData(0, 0, N, N).data, v = []; for (let k = 0; k < d.length; k += 4) v.push(255 - (d[k] + d[k + 1] + d[k + 2]) / 3);
+    const m = v.reduce((p, q) => p + q, 0) / v.length, e = Math.sqrt(v.reduce((p, q) => p + (q - m) ** 2, 0)) || 1;
+    return v.map(q => (q - m) / e);
+  }
+  const shapeCorr = (A, B) => A.reduce((p, q, k) => p + q * B[k], 0);
+
   async function pdfToEpub(file, say) {
     say('Lendo o arquivo…'); await tick();
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
@@ -990,19 +1000,19 @@
           if (ang < 0) continue;
           const st0 = styleOf(it.fontName), mono = st0.m;
           let src = it.str;
-          if (wantImgs && /[\u0001-\u0008\u000e-\u001f]/.test(src)) {   // glifo sem Unicode (símbolo matemático, marcador): vira uma imagem pequena do próprio glifo
+          if (wantImgs && /[\u0000-\u0008\u000e-\u001f]/.test(src)) {   // glifo sem Unicode (símbolo matemático, marcador): vira uma imagem pequena do próprio glifo
             // posição de cada caractere: larguras medidas numa fonte parecida (glifo desconhecido = 0,62 em), ajustadas à largura real do item
-            const isCtl = c => /[\u0001-\u0008\u000e-\u001f]/.test(c);
+            const isCtl = c => /[\u0000-\u0008\u000e-\u001f]/.test(c);
             mctx.font = `${st0.i ? 'italic ' : ''}${st0.b ? 'bold ' : ''}${size}px ${st0.m ? 'monospace' : 'serif'}`;
             const ws = [...src].map(c => isCtl(c) ? 0.62 * size : mctx.measureText(c).width), tot = ws.reduce((a, b) => a + b, 0) || 1, k = it.width / tot;
             let out = '', acc = 0;
             [...src].forEach((c, n) => {
               const gx = m[4] + acc * k, gw = ws[n] * k; acc += ws[n];
               if (!isCtl(c)) { out += c; return; }
-              const key = st0.n + '|' + c.charCodeAt(0), pad = 0.04 * size, exact = src.length === 1;
+              const key = c === '\u0000' ? 'nul|' + glyphs.length : st0.n + '|' + c.charCodeAt(0), pad = 0.04 * size, exact = src.length === 1;
               const box = [gx - pad, m[5] - size * 0.92, gx + gw + pad, m[5] + size * 0.36];
               let g = glyphIdx.get(key);
-              if (!g) { g = { id: glyphs.length, box, exact, list: pageGl }; glyphs.push(g); glyphIdx.set(key, g); pageGl.push(g); }
+              if (!g) { g = { id: glyphs.length, box, exact, list: pageGl, size, it: st0.i, bd: st0.b, nul: c === '\u0000' }; glyphs.push(g); glyphIdx.set(key, g); pageGl.push(g); }
               else if (exact && !g.exact) { const at = g.list.indexOf(g); if (at >= 0) g.list.splice(at, 1); g.box = box; g.exact = true; g.list = pageGl; pageGl.push(g); }   // ocorrência isolada: caixa exata
               out += '\uFFFC' + g.id + '\uFFFC';
             });
@@ -1291,6 +1301,7 @@
     }
 
     // renderiza capa, figuras e equações (uma vez por página)
+    const nulClusters = [];
     for (const P of pages) {
       if (!P.figs.length && !P.glyphs.length && !(cover && P.pn === 1)) continue;
       say(`Gerando imagens… página ${P.pn} de ${N}`); await tick();
@@ -1302,7 +1313,14 @@
         if (w < 2 || h < 2) continue;
         const d = cv.getContext('2d').getImageData(x, y, w, h).data; let ink = false;
         for (let k = 0; k < d.length; k += 4) if (d[k] + d[k + 1] + d[k + 2] < 600) { ink = true; break; }
-        if (ink) { g.ok = true; images.push({ name: `img/g${g.id}.jpg`, bytes: await jpeg(cv, x, y, w, h) }); }
+        if (!ink) continue;
+        if (g.nul) {   // código 0 não identifica o glifo: agrupa as ocorrências pela forma (são ligaduras fi/fl/ff… sem Unicode)
+          const vec = shapeVec(cv, x, y, w, h), wpt = w / scale;
+          let cl = nulClusters.find(c => Math.abs(c.wpt - wpt) < 0.1 * c.wpt && shapeCorr(c.vec, vec) > 0.9);
+          if (!cl) { cl = { vec, wpt, id: g.id, size: g.size, bytes: await jpeg(cv, x, y, w, h), members: [] }; nulClusters.push(cl); }
+          cl.members.push(g); g.cl = cl; continue;
+        }
+        g.ok = true; images.push({ name: `img/g${g.id}.jpg`, bytes: await jpeg(cv, x, y, w, h) });
       }
       if (cover && P.pn === 1) cover = { name: 'img/capa.jpg', bytes: await jpeg(cv, 0, 0, cv.width, cv.height, 0.82, 1600), w: cv.width, h: cv.height };
       for (const [i, f] of P.figs.entries()) {
@@ -1316,6 +1334,32 @@
         images.push({ name: f.src, bytes: await jpeg(cv, x, y, w, h, f.page ? 0.75 : 0.85) });
       }
       P.figs = P.figs.filter(f => !f.skip); page.cleanup();
+    }
+    // ligaduras sem Unicode (fi, fl, ff, ffi, ffl): o contexto das ocorrências decide o texto; o que sobrar fica como imagem
+    if (nulClusters.length) {
+      const lang0 = guessLang(' ' + pages.flatMap(P => P.lines).slice(0, 3000).map(L => L.text.replace(/\uFFFC\d+\uFFFC/g, ' ')).join(' ') + ' ');
+      const ctx = new Map(nulClusters.map(c => [c, { n: 0, cons: 0, letters: 0, pre: 0 }]));
+      for (const P of pages) for (const L of P.lines) {
+        if (!L.text.includes('\uFFFC')) continue;
+        for (const m of L.text.matchAll(/(\p{L}*)\uFFFC(\d+)\uFFFC(\p{L}*)/gu)) {
+          const g = glyphs[+m[2]], c = g && g.cl && ctx.get(g.cl);
+          if (!c) continue;
+          c.n++; if (m[1] || m[3]) c.letters++; if (m[1]) c.pre++;
+          if (m[3] && /^[b-df-hj-kmnp-tv-zçñ]/i.test(m[3])) c.cons++;
+        }
+      }
+      for (const cl of nulClusters) {
+        const c = ctx.get(cl), em = cl.wpt / (cl.size || 10);
+        let txt = null;
+        if (c.n >= 3 && c.letters >= 0.7 * c.n && em > 0.3 && em < 1.15) {
+          const consRate = c.cons / c.n;
+          if (em > 0.74) txt = consRate >= 0.15 ? 'ffi' : 'ffl';
+          else if (consRate >= 0.1) txt = 'fi';
+          else if (c.n >= 8 && ['pt', 'es', 'fr', 'it'].includes(lang0)) txt = 'fl';
+        }
+        if (txt) cl.members.forEach(g => { g.text = txt; });
+        else { images.push({ name: `img/g${cl.id}.jpg`, bytes: cl.bytes }); cl.members.forEach(g => { g.ok = true; g.imgId = cl.id; }); }
+      }
     }
     // o mesmo desenho, na mesma posição, em várias páginas é decoração (logotipo, faixa): sai
     {
@@ -1553,14 +1597,16 @@
         cand = grp.map(L => L.text).join(' ').replace(/\uFFFC\d+\uFFFC/g, '').replace(/\s+/g, ' ').trim();
       }
       const wc = cand.split(' ').length;
-      title = cand && wc >= 1 && wc <= 14 && /\p{L}{3}/u.test(cand) && !/^(sum[áa]rio|[ií]ndice|contents|cap[íi]tulo|chapter|resumo|abstract|\d+)$/i.test(cand) ? cand : file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+      const fname = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+      const junkName = fname.length < 4 || !/\p{L}{3}/u.test(fname) || /^(scan(ned)?|img|image|doc(ument)?|untitled|new|output|file|download|print|pdf|capture|digitaliza\S*)[\s\-\d()]*$/i.test(fname);   // o nome que a pessoa escolheu vale mais que um palpite
+      title = junkName && cand && wc <= 14 && /\p{L}{3}/u.test(cand) && !/^(sum[áa]rio|[ií]ndice|contents|cap[íi]tulo|chapter|resumo|abstract|\d+|dados de copyright|copyright|direitos|sobre a obra)/i.test(cand) ? cand : fname;
     }
     const authors = clean(info.Author) ? cleanAuthors(clean(info.Author)) : [];
     const lang = guessLang(' ' + flat().slice(0, 3000).map(L => L.text).join(' ') + ' ');
 
     // 7) XHTML
     say('Montando o EPUB…'); await tick();
-    const glyphHtml = (_, id) => glyphs[+id] && glyphs[+id].ok ? `<img class="g" src="img/g${id}.jpg" alt=""/>` : '';
+    const glyphHtml = (_, id) => glyphs[+id] && glyphs[+id].text ? xesc(glyphs[+id].text) : glyphs[+id] && glyphs[+id].ok ? `<img class="g" src="img/g${glyphs[+id].imgId ?? id}.jpg" alt=""/>` : '';
     const runsHtml = runs => runs.map(r => {
       let h = xesc(r.t).replace(/\uFFFC(\d+)\uFFFC/g, glyphHtml);
       if (r.sup > 0) h = `<sup>${h}</sup>`; else if (r.sup < 0) h = `<sub>${h}</sub>`;
