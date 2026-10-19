@@ -689,7 +689,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   // ---------- conversão PDF -> EPUB ----------
-  const xesc = s => esc(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, '');
+  const xesc = s => esc(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '');   // sem controles nem metades de par substituto (XML inválido)
   const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return b[b.length >> 1]; };
   const modeOf = (pairs, bin) => {   // moda ponderada de [valor, peso]; devolve a média dos valores da faixa vencedora
     const h = new Map();
@@ -772,7 +772,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return lines;
   }
 
-  const plainRun = r => !r.sup && !r.i && !r.b;   // o espaço entre trechos fica fora de itálico, negrito e sobrescrito
+  const plainRun = r => !r.sup && !r.i && !r.b && !r.m;   // o espaço entre trechos fica fora de itálico, negrito e sobrescrito
+  // trechos (itálico, negrito, código, sobrescrito) a partir de itens de texto ordenados por x
+  function buildRuns(items, size, y, pn) {
+    const runs = []; let prevEnd = null;
+    for (const r of items) {
+      const st = r.st, small = r.size < 0.9 * size;
+      const run = { t: r.str, b: st.b, i: st.i, m: st.m, sup: small && y - r.y > 0.1 * size ? 1 : small && r.y - y > 0.12 * size ? -1 : 0, pn };
+      const last = runs[runs.length - 1];
+      const gap = prevEnd === null ? 0 : r.x - prevEnd;
+      const sp = last && gap > 0.15 * Math.min(r.size, size) && !/\s$/.test(last.t) && !/^\s/.test(run.t) && !/^[,.;:!?)\]}%»”’]/.test(run.t) && !/[(\[{«“‘]$/.test(last.t);
+      if (last && last.b === run.b && last.i === run.i && last.m === run.m && last.sup === run.sup) last.t += (sp ? ' ' : '') + run.t;
+      else { if (sp) { if (!plainRun(run) || plainRun(last)) last.t += ' '; else run.t = ' ' + run.t; } runs.push(run); }
+      prevEnd = r.x + r.w;
+    }
+    runs.forEach(r => { if (!r.m) r.t = r.t.replace(/\s+/g, ' '); });
+    if (runs.length) { runs[0].t = runs[0].t.replace(/^\s+/, ''); const lr = runs[runs.length - 1]; lr.t = lr.t.replace(/\s+$/, ''); }
+    return runs.filter(r => r.t);
+  }
   function finalizeLines(groups, styleOf, pn, col) {
     const out = [];
     for (const g of groups) {
@@ -783,24 +800,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const base = items.filter(r => Math.abs(r.size - size) < 0.6);
       const y = base.length ? median(base.map(r => r.y)) : g.y;
       const L = { pn, items, size, y, top: y - size, x0: items[0].x, x1: Math.max(...items.map(r => r.x + r.w)), col, runs: [] };
-      let prevEnd = null;
-      for (const r of items) {
-        const st = styleOf(r.font), small = r.size < 0.9 * size;
-        const run = { t: r.str, b: st.b, i: st.i, sup: small && y - r.y > 0.1 * size ? 1 : small && r.y - y > 0.12 * size ? -1 : 0, pn };
-        const last = L.runs[L.runs.length - 1];
-        const gap = prevEnd === null ? 0 : r.x - prevEnd;
-        const sp = last && gap > 0.15 * Math.min(r.size, size) && !/\s$/.test(last.t) && !/^\s/.test(run.t);
-        if (last && last.b === run.b && last.i === run.i && last.sup === run.sup) last.t += (sp ? ' ' : '') + run.t;
-        else { if (sp) { if (!plainRun(run) || plainRun(last)) last.t += ' '; else run.t = ' ' + run.t; } L.runs.push(run); }
-        prevEnd = r.x + r.w;
-      }
-      L.runs.forEach(r => r.t = r.t.replace(/\s+/g, ' '));
-      L.runs[0].t = L.runs[0].t.replace(/^\s+/, '');
-      const lr = L.runs[L.runs.length - 1]; lr.t = lr.t.replace(/\s+$/, '');
-      L.runs = L.runs.filter(r => r.t);
+      L.runs = buildRuns(items, size, y, pn);
       L.text = L.runs.map(r => r.t).join('');
       if (!L.text) continue;
       L.bold = L.runs.every(r => r.b || !r.t.trim());
+      L.mathShare = items.reduce((n, r) => n + (r.st.x ? r.str.trim().length : 0), 0) / Math.max(1, items.reduce((n, r) => n + r.str.trim().length, 0));
+      const monoChars = L.runs.reduce((n, r) => n + (r.m ? r.t.length : 0), 0);
+      if (monoChars >= 0.85 * L.text.length) {   // linha de código: guarda o texto posicionado em colunas de caracteres
+        const mi = items.filter(r => r.mono && r.str.length), cw = median(mi.map(r => r.w / r.str.length)) || size * 0.6;
+        let code = '';
+        for (const r of items) { const c = Math.round((r.x - L.x0) / cw); if (code.length < c) code = code.padEnd(c); code += r.str; }
+        L.mono = true; L.cw = cw; L.code = code.replace(/\s+$/, '');
+      }
       L.upper = /\p{Lu}/u.test(L.text) && !/\p{Ll}/u.test(L.text);
       out.push(L);
     }
@@ -829,6 +840,103 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return out;
   }
 
+
+  // formas desenhadas numa página (imagens e vetores), em coordenadas da página
+  function drawnShapes(ol, vp, W, H, IMG_OPS, OPS, Util) {
+    const PAINT = new Set([OPS.stroke, OPS.closeStroke, OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
+    const shapes = []; let hasImg = false, ctm = [1, 0, 0, 1, 0, 0], pending = null;
+    const stack = [];
+    const toPage = (pts) => {
+      const q = pts.map(([x, y]) => vp.convertToViewportPoint(...Util.applyTransform([x, y], ctm))), xs = q.map(a => a[0]), ys = q.map(a => a[1]);
+      return [Math.max(0, Math.min(...xs)), Math.max(0, Math.min(...ys)), Math.min(W, Math.max(...xs)), Math.min(H, Math.max(...ys))];
+    };
+    for (let k = 0; k < ol.fnArray.length; k++) {
+      const fn = ol.fnArray[k], a = ol.argsArray[k];
+      if (fn === OPS.save) stack.push(ctm);
+      else if (fn === OPS.restore) ctm = stack.pop() || ctm;
+      else if (fn === OPS.transform) ctm = Util.transform(ctm, a);
+      else if (fn === OPS.paintFormXObjectBegin) { stack.push(ctm); if (Array.isArray(a[0]) && a[0].length === 6) ctm = Util.transform(ctm, a[0]); }
+      else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || ctm;
+      else if (fn === OPS.beginGroup) { stack.push(ctm); if (a[0] && a[0].matrix) ctm = Util.transform(ctm, a[0].matrix); }
+      else if (fn === OPS.endGroup) ctm = stack.pop() || ctm;
+      else if (fn === OPS.constructPath) {
+        const mm = a[2];   // [minX, maxX, minY, maxY] no espaço do usuário
+        if (mm && mm.length === 4 && isFinite(mm[0] + mm[1] + mm[2] + mm[3])) pending = pending ? [Math.min(pending[0], mm[0]), Math.max(pending[1], mm[1]), Math.min(pending[2], mm[2]), Math.max(pending[3], mm[3])] : mm;
+      }
+      else if (PAINT.has(fn)) {
+        if (pending) {
+          const b = toPage([[pending[0], pending[2]], [pending[1], pending[2]], [pending[0], pending[3]], [pending[1], pending[3]]]), w = b[2] - b[0], h = b[3] - b[1];
+          if ((w > 0 || h > 0) && w * h < 0.55 * W * H) shapes.push({ b, k: Math.max(w, h) < 2.5 ? 'dot' : Math.min(w, h) < 2.2 && Math.max(w, h) > 8 ? 'rule' : 'vec' });   // formas do tamanho da página são fundo
+        }
+        pending = null;
+      }
+      else if (fn === OPS.endPath || fn === OPS.clip || fn === OPS.eoClip) pending = null;
+      else if (IMG_OPS.has(fn)) {
+        hasImg = true;
+        const b = toPage([[0, 0], [1, 0], [0, 1], [1, 1]]);
+        if (b[2] - b[0] > 1 && b[3] - b[1] > 1 && (b[2] - b[0]) * (b[3] - b[1]) < 0.9 * W * H) shapes.push({ b, k: 'img' });
+      }
+    }
+    return { shapes, hasImg };
+  }
+
+  // figuras: agrupa imagens e desenhos vizinhos; descarta ícones, fundos, tabelas (só linhas) e caixas de texto
+  function figureRegions(shapes, raw, W, H, chars) {
+    const sh = shapes.filter(s => s.k !== 'dot');
+    if (!sh.length) return [];
+    const idx = sh.map((_, i) => i).sort((a, b) => sh[a].b[0] - sh[b].b[0]);
+    const par = sh.map((_, i) => i), find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; }, GAP = 6;
+    for (let a = 0; a < idx.length; a++) {
+      const A = sh[idx[a]].b;
+      for (let c = a + 1; c < idx.length; c++) { const B = sh[idx[c]].b; if (B[0] > A[2] + GAP) break; if (B[1] <= A[3] + GAP && A[1] <= B[3] + GAP) par[find(idx[c])] = find(idx[a]); }
+    }
+    const groups = new Map();
+    sh.forEach((s, i) => {
+      const r = find(i), g = groups.get(r) || { b: [1e9, 1e9, -1e9, -1e9], img: 0, vec: 0, rule: 0 };
+      g.b = [Math.min(g.b[0], s.b[0]), Math.min(g.b[1], s.b[1]), Math.max(g.b[2], s.b[2]), Math.max(g.b[3], s.b[3])]; g[s.k]++; groups.set(r, g);
+    });
+    const G = [...groups.values()];
+    const sig = g => g.img > 0 || g.vec >= 3;
+    for (let merged = true; merged;) {
+      merged = false;
+      for (let i = 0; i < G.length && !merged; i++) for (let j = i + 1; j < G.length && !merged; j++) {
+        const A = G[i], B = G[j];
+        if (!sig(A) && !sig(B)) continue;
+        const area = g => (g.b[2] - g.b[0]) * (g.b[3] - g.b[1]);
+        if (area(A) > 0.3 * W * H || area(B) > 0.3 * W * H) continue;
+        const vo = Math.min(A.b[3], B.b[3]) - Math.max(A.b[1], B.b[1]), ho = Math.min(A.b[2], B.b[2]) - Math.max(A.b[0], B.b[0]);
+        const hgap = Math.max(A.b[0], B.b[0]) - Math.min(A.b[2], B.b[2]), vgap = Math.max(A.b[1], B.b[1]) - Math.min(A.b[3], B.b[3]);
+        if ((vo >= 0.4 * Math.min(A.b[3] - A.b[1], B.b[3] - B.b[1]) && hgap < 48) || (ho >= 0.4 * Math.min(A.b[2] - A.b[0], B.b[2] - B.b[0]) && vgap < 14)) {
+          A.b = [Math.min(A.b[0], B.b[0]), Math.min(A.b[1], B.b[1]), Math.max(A.b[2], B.b[2]), Math.max(A.b[3], B.b[3])];
+          A.img += B.img; A.vec += B.vec; A.rule += B.rule; G.splice(j, 1); merged = true;
+        }
+      }
+    }
+    const rowMap = new Map();
+    for (const r of raw) { const k = Math.round(r.y / 2); (rowMap.get(k) || rowMap.set(k, []).get(k)).push(r); }
+    const rows = [...rowMap.values()];
+    const inside = (r, b, m) => r.x + r.w / 2 > b[0] - m && r.x + r.w / 2 < b[2] + m && r.y - r.size / 3 > b[1] - m && r.y - r.size / 3 < b[3] + m;
+    const out = [];
+    for (const g of G) {
+      let [x0, y0, x1, y1] = g.b; const w = x1 - x0, h = y1 - y0;
+      if (g.img === 0 && g.vec < 4 && !(g.vec >= 1 && w >= 60 && h >= 60)) continue;   // só vetores: precisam de peças suficientes (linhas soltas são tabelas/sublinhados)
+      if (w < 24 || h < 14) continue;
+      if (g.img > 0 && g.vec === 0 && (w < 0.08 * W || h < 0.04 * H)) continue;       // ícone ou logotipo
+      if (w * h > 0.5 * W * H && chars > 100) continue;                               // fundo de página
+      const ins = raw.filter(r => inside(r, g.b, 3)), tc = ins.reduce((n, r) => n + r.str.trim().length, 0);
+      if (g.img === 0 && (tc > 160 || ins.filter(r => r.str.trim().length >= 28).length >= 2)) continue;   // caixa com texto, não figura
+      // rótulos de eixos e nós: linhas curtinhas (até 24 caracteres) coladas na figura
+      const ring = [g.b[0] - 14, g.b[1] - 14, g.b[2] + 14, g.b[3] + 14];
+      for (const row of rows) {
+        if (row.every(r => ins.includes(r)) || row.reduce((n, r) => n + r.str.trim().length, 0) > 24) continue;
+        if (!row.every(r => r.x >= ring[0] && r.x + r.w <= ring[2] && r.y - r.size <= ring[3] && r.y >= ring[1])) continue;
+        for (const r of row) { ins.push(r); x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y - r.size); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.size * 0.3); }
+      }
+      out.push({ box: [Math.max(0, x0 - 2), Math.max(0, y0 - 2), Math.min(W, x1 + 2), Math.min(H, y1 + 2)], alt: ins.map(r => r.str.trim()).join(' ').replace(/\uFFFC\d+\uFFFC/g, '').slice(0, 160) });
+    }
+    return out;
+  }
+
   async function pdfToEpub(file, say) {
     say('Lendo o arquivo…'); await tick();
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
@@ -853,18 +961,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
       return new Uint8Array(await blob.arrayBuffer());
     };
-    const render = async (page, vp1) => {
-      const scale = Math.min(2.5, 2000 / Math.max(vp1.width, vp1.height));
+    const render = async (page, vp1, top = 2.5) => {
+      const scale = Math.min(top, 2600 / Math.max(vp1.width, vp1.height));
       const vp = page.getViewport({ scale });
       const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
       const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
       await page.render({ canvasContext: cx, viewport: vp, annotationMode: AnnotationMode.DISABLE }).promise;
       return { cv, scale };
     };
-    const addImage = (name, bytes, w, h) => { images.push({ name, bytes }); return { t: 'img', src: name, w, h }; };
 
     // 1) páginas -> linhas (texto posicionado) e figuras
-    const pages = [], N = doc.numPages;
+    const pages = [], N = doc.numPages, glyphs = [], glyphIdx = new Map(), mctx = document.createElement('canvas').getContext('2d');
     let cover = null;
     for (let pn = 1; pn <= N; pn++) {
       say(`Lendo página ${pn} de ${N}…`); await tick();
@@ -881,94 +988,67 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           let name = '', fo = null;
           try { if (page.commonObjs.has(id)) { fo = page.commonObjs.get(id); name = fo.name || ''; } } catch (e) {}
           fontStyle[id] = {
+            n: name || id,
             b: !!(fo && (fo.bold || fo.black)) || /bold|black|heavy|semibold|demi/i.test(name),
             i: !!(fo && fo.italic) || /italic|oblique|-it$|kursiv/i.test(name),
+            x: /(?:CMMI|CMSY|CMEX|CMMIB|CMBSY|MSAM|MSBM|MTMI|MTSY|MTEX|MTSYN|MTEXTRA|MathematicalPi|Symbol|STIX.{0,12}Math|Cambria.?Math|LMMath|Math\d*)\d*$/i.test(name.replace(/^[A-Z]{6}\+/, '')),
+            m: !!(fo && (fo.isMonospace || fo.fallbackName === 'monospace')) || /mono|courier|consol|menlo|monaco|typewriter|cmtt|lucida console|inconsolata|source ?code|fira ?code|\bcode\b/i.test(name),
           };
         }
         return fontStyle[id];
       };
 
-      // figuras: acompanha a matriz de transformação para achar onde cada imagem é desenhada
-      let boxes = [], hasImg = false;
-      if (ol) {
-        let ctm = [1, 0, 0, 1, 0, 0]; const stack = [];
-        for (let k = 0; k < ol.fnArray.length; k++) {
-          const fn = ol.fnArray[k], a = ol.argsArray[k];
-          if (fn === OPS.save) stack.push(ctm);
-          else if (fn === OPS.restore) ctm = stack.pop() || ctm;
-          else if (fn === OPS.transform) ctm = Util.transform(ctm, a);
-          else if (fn === OPS.paintFormXObjectBegin) { stack.push(ctm); if (Array.isArray(a[0]) && a[0].length === 6) ctm = Util.transform(ctm, a[0]); }
-          else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || ctm;
-          else if (fn === OPS.beginGroup) { stack.push(ctm); if (a[0] && a[0].matrix) ctm = Util.transform(ctm, a[0].matrix); }
-          else if (fn === OPS.endGroup) ctm = stack.pop() || ctm;
-          else if (IMG_OPS.has(fn)) {
-            hasImg = true;
-            const pts = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => vp.convertToViewportPoint(...Util.applyTransform([x, y], ctm)));
-            const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
-            const b = [Math.max(0, Math.min(...xs)), Math.max(0, Math.min(...ys)), Math.min(W, Math.max(...xs)), Math.min(H, Math.max(...ys))];
-            if (b[2] - b[0] > 1 && b[3] - b[1] > 1) boxes.push(b);
-          }
-        }
-        // junta pedaços (imagens costumam vir fatiadas em tiras)
-        for (let changed = true; changed;) {
-          changed = false;
-          for (let i = 0; i < boxes.length && !changed; i++) for (let j = i + 1; j < boxes.length && !changed; j++) {
-            const A = boxes[i], B = boxes[j];
-            if (A[0] <= B[2] + 2 && B[0] <= A[2] + 2 && A[1] <= B[3] + 2 && B[1] <= A[3] + 2) {
-              boxes[i] = [Math.min(A[0], B[0]), Math.min(A[1], B[1]), Math.max(A[2], B[2]), Math.max(A[3], B[3])];
-              boxes.splice(j, 1); changed = true;
-            }
-          }
-        }
-      }
+      const { shapes, hasImg } = ol ? drawnShapes(ol, vp, W, H, IMG_OPS, OPS, Util) : { shapes: [], hasImg: false };
 
       // itens de texto em coordenadas da página (y para baixo)
-      const raw = [];
+      const raw = [], pageGl = [];
       for (const it of tc.items) {
         if (!it.str || !it.str.trim()) continue;
         const m = Util.transform(vp.transform, it.transform);
         const size = Math.hypot(m[2], m[3]);
         if (size < 1 || Math.abs(m[1]) > 0.05 * Math.abs(m[0]) || m[0] <= 0) continue;   // ignora texto girado
-        raw.push({ x: m[4], y: m[5], w: it.width, size, str: it.str.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/[\u21a9\u21b5\ufe0e]/g, '').replace(/\s+/g, ' '), font: it.fontName });
+        const st0 = styleOf(it.fontName), mono = st0.m;
+        let src = it.str;
+        if (wantImgs && /[\u0001-\u0008\u000e-\u001f]/.test(src)) {   // glifo sem Unicode (símbolo matemático, marcador): vira uma imagem pequena do próprio glifo
+          // posição de cada caractere: larguras medidas numa fonte parecida (glifo desconhecido = 0,62 em), ajustadas à largura real do item
+          const isCtl = c => /[\u0001-\u0008\u000e-\u001f]/.test(c);
+          mctx.font = `${st0.i ? 'italic ' : ''}${st0.b ? 'bold ' : ''}${size}px ${st0.m ? 'monospace' : 'serif'}`;
+          const ws = [...src].map(c => isCtl(c) ? 0.62 * size : mctx.measureText(c).width), tot = ws.reduce((a, b) => a + b, 0) || 1, k = it.width / tot;
+          let out = '', acc = 0;
+          [...src].forEach((c, n) => {
+            const gx = m[4] + acc * k, gw = ws[n] * k; acc += ws[n];
+            if (!isCtl(c)) { out += c; return; }
+            const key = st0.n + '|' + c.charCodeAt(0), pad = 0.04 * size, exact = src.length === 1;
+            const box = [gx - pad, m[5] - size * 0.92, gx + gw + pad, m[5] + size * 0.36];
+            let g = glyphIdx.get(key);
+            if (!g) { g = { id: glyphs.length, box, exact, list: pageGl }; glyphs.push(g); glyphIdx.set(key, g); pageGl.push(g); }
+            else if (exact && !g.exact) { const at = g.list.indexOf(g); if (at >= 0) g.list.splice(at, 1); g.box = box; g.exact = true; g.list = pageGl; pageGl.push(g); }   // ocorrência isolada: caixa exata
+            out += '\uFFFC' + g.id + '\uFFFC';
+          });
+          src = out;
+        }
+        raw.push({ x: m[4], y: m[5], w: it.width, size, mono, st: st0, str: (mono ? src.replace(/\t/g, '    ') : src).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­​﻿]/g, '').replace(/[\u21a9\u21b5\ufe0e]/g, '').replace(mono ? /[^\S ]+/g : /\s+/g, ' '), font: it.fontName });
       }
       const chars = raw.reduce((n, r) => n + r.str.trim().length, 0);
 
       const figs = [];
       let full = false;
       if (pn === 1 && wantCover) {
-        const { cv } = await render(page, vp);
-        const bytes = await jpeg(cv, 0, 0, cv.width, cv.height);
-        cover = { name: 'img/capa.jpg', bytes, w: cv.width, h: cv.height };
+        cover = { pn: 1 };
         if (chars < 400) full = true;   // capa ou folha de rosto: não repete no texto
       }
       if (!full && wantImgs) {
-        if (chars < 30 && (hasImg || (ol && ol.fnArray.length > 200))) {   // página escaneada ou só ilustração
-          const { cv } = await render(page, vp);
-          figs.push({ ...addImage(`img/p${pn}.jpg`, await jpeg(cv, 0, 0, cv.width, cv.height), cv.width, cv.height), top: 0, page: true });
-          full = true;
-        } else {
-          boxes = boxes.filter(b => {
-            const w = b[2] - b[0], h = b[3] - b[1];
-            return w >= 0.08 * W && h >= 0.04 * H && !(w * h > 0.8 * W * H && chars > 200);   // nem ícone, nem fundo de página
-          });
-          if (boxes.length) {
-            const { cv, scale } = await render(page, vp);
-            for (const [i, b] of boxes.entries()) {
-              const x = Math.floor(b[0] * scale), y = Math.floor(b[1] * scale);
-              const w = Math.min(cv.width - x, Math.ceil((b[2] - b[0]) * scale)), h = Math.min(cv.height - y, Math.ceil((b[3] - b[1]) * scale));
-              if (w < 8 || h < 8) continue;
-              figs.push({ ...addImage(`img/p${pn}-${i + 1}.jpg`, await jpeg(cv, x, y, w, h), w, h), top: b[1], box: b });
-            }
-          }
-        }
+        if (chars < 30 && (hasImg || shapes.length > 30)) { figs.push({ t: 'img', page: true, top: 0, box: [0, 0, W, H], pn }); full = true; }   // página escaneada ou só ilustração
+        else for (const f of figureRegions(shapes, raw, W, H, chars)) figs.push({ t: 'img', top: f.box[1], box: f.box, alt: f.alt, pn });
       }
 
       let lines = [];
       if (!full) {
-        const inFig = r => figs.some(f => f.box && r.x + r.w / 2 > f.box[0] && r.x + r.w / 2 < f.box[2] && r.y - r.size / 2 > f.box[1] && r.y - r.size / 2 < f.box[3]);
+        const inFig = r => figs.some(f => r.x + r.w / 2 > f.box[0] - 2 && r.x + r.w / 2 < f.box[2] + 2 && r.y - r.size / 3 > f.box[1] - 2 && r.y - r.size / 3 < f.box[3] + 2);
         lines = pageLines(raw.filter(r => !inFig(r)), styleOf, pn);   // texto dentro da figura já está na imagem
       }
-      pages.push({ pn, vp, W, H, lines, figs, cols: Math.max(1, ...lines.map(L => L.col + 1)) });
+      lines.forEach((L, i) => { if (L.mono && !((lines[i - 1] && lines[i - 1].mono) || (lines[i + 1] && lines[i + 1].mono) || L.text.length >= 30)) L.mono = false; });
+      pages.push({ pn, vp, W, H, lines, figs, glyphs: pageGl, cols: Math.max(1, ...lines.map(L => L.col + 1)) });
       page.cleanup();
     }
 
@@ -978,7 +1058,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const sizeChars = new Map();
     for (const L of flat()) { const k = Math.round(L.size * 2) / 2; sizeChars.set(k, (sizeChars.get(k) || 0) + L.text.length); }
     const body = sizeChars.size ? [...sizeChars.entries()].sort((a, b) => b[1] - a[1])[0][0] : 10;
-    const cls = L => L.hd || L.size >= body * 1.12 ? 'h' : L.size < body * 0.88 ? 's' : 'b';
+    const cls = L => L.mono ? 'k' : L.hd || L.size >= body * 1.12 ? 'h' : L.size < body * 0.88 ? 's' : 'b';
 
     // 3) cabeçalhos, rodapés e números de página repetidos
     if (dropHf && N > 1) {
@@ -1051,16 +1131,144 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     for (const P of pages) P.lines.forEach((L, i) => {
       if (cls(L) !== 'b' || L.span) return;
       const t = L.text.trim(), words = t.split(/\s+/).length;
-      if (t.length > 120 || LIST_START.test(t)) return;
+      const numN = /^\d+(?:\.\d+){1,4}\.?\s+\S/.test(t), num1 = /^\d{1,2}[.)]\s+\p{Lu}/u.test(t);
+      if (t.length > 120 || (LIST_START.test(t) && !numN && !(num1 && L.bold && words <= 14))) return;
       const prev = P.lines[i - 1], s = P.st[L.col] || globAll;
       const isolated = !prev || prev.col !== L.col || prev.hd || L.y - prev.y > s.pitch * 1.15;
       const chap = CHAP_RE.test(t) && words <= 14;
       if (TERMINAL.test(t) && !chap) return;
       const cen = centeredL(L);
-      if ((L.upper && t.length > 2 && words <= 20 && (cen || L.bold)) || (L.bold && words <= 12 && !/[,;:]$/.test(t) && isolated) || (chap && (cen || L.bold || L.upper))) L.hd = true;
+      if ((L.upper && t.length > 2 && words <= 20 && (cen || L.bold)) || (L.bold && words <= 12 && !/[,;:]$/.test(t) && isolated) || (chap && (cen || L.bold || L.upper)) || (numN && words <= 14 && (L.bold || isolated)) || (num1 && L.bold && words <= 14)) L.hd = true;
     });
     const words = new Set();
     for (const L of flat()) for (const w of L.text.toLowerCase().split(/[^\p{L}\p{N}-]+/u)) if (w) words.add(w);
+
+
+    // equações em destaque: linhas de fonte matemática sozinhas na linha viram imagem (com limites e índices vizinhos)
+    if (wantImgs) for (const P of pages) {
+      const ls = P.lines, st = c => P.st[c] || globAll;
+      const cen = L => { const s = st(L.col), lg = L.x0 - s.Lm, rg = s.Rm - L.x1; return lg > 3 * L.size && Math.abs(lg - rg) < 2 * L.size; };
+      const isEq = L => !L.span && !L.hd && L.text.length >= 2 && ((L.mathShare >= 0.5 && (L.x0 - st(L.col).Lm > 1.2 * L.size || st(L.col).Rm - L.x1 > 4 * L.size)) || (L.mathShare >= 0.25 && L.text.length <= 90 && cen(L)));
+      const eq = ls.map((L, i) => isEq(L) ? i : -1).filter(i => i >= 0);
+      if (!eq.length) continue;
+      const take = new Set(eq);
+      ls.forEach((L, i) => {
+        if (take.has(i) || L.hd || L.text.length > 16) return;
+        if (eq.some(j => { const E = ls[j]; return L.col === E.col && Math.abs(L.y - E.y) <= 2.2 * body && L.x1 > E.x0 - 2 && L.x0 < E.x1 + 2 && (L.size < 0.92 * body || L.mathShare >= 0.3); })) take.add(i);
+      });
+      const groups = []; let g = null;
+      for (const i of [...take].sort((a, b) => a - b)) {
+        const L = ls[i];
+        if (g && L.col === g.col && L.y - g.lastY < 2.4 * body) { g.idx.push(i); g.lastY = Math.max(g.lastY, L.y); } else { g = { idx: [i], lastY: L.y, col: L.col }; groups.push(g); }
+      }
+      for (const gr of groups) {
+        const Ls = gr.idx.map(i => ls[i]), its = Ls.flatMap(L => L.items);
+        const box = [Math.min(...its.map(r => r.x)) - 2, Math.min(...its.map(r => r.y - r.size * 0.95)) - 2, Math.max(...its.map(r => r.x + r.w)) + 2, Math.max(...its.map(r => r.y + r.size * 0.32)) + 2];
+        P.figs.push({ t: 'img', eq: true, top: box[1], box, alt: Ls.map(L => L.text).join(' ').replace(/\uFFFC\d+\uFFFC/g, '').slice(0, 200), pn: P.pn });
+      }
+      const gone = new Set(groups.flatMap(g => g.idx)); P.lines = ls.filter((_, i) => !gone.has(i));
+    }
+
+    // tabelas: linhas seguidas com células separadas por vãos largos e colunas alinhadas viram <table>
+    for (const P of pages) {
+      P.tabs = [];
+      if (P.cols > 1 || P.lines.length < 3) continue;
+      const ls = P.lines, st = P.st[0] || globAll;
+      const cellsOf = L => {
+        const cells = []; let c = null;
+        for (const r of L.items) {
+          if (c && r.x - c.x1 <= 1.3 * L.size) { c.items.push(r); c.x1 = Math.max(c.x1, r.x + r.w); } else { c = { items: [r], x0: r.x, x1: r.x + r.w }; cells.push(c); }
+        }
+        return cells;
+      };
+      const raw1 = ls.map(L => !L.span && !L.hd && !L.mono && cls(L) !== 'h' && L.items.length >= 1 ? cellsOf(L) : null);
+      const tab = raw1.map((c, i) => c && c.length >= 2 ? c : (c && i > 0 && i < raw1.length - 1 && raw1[i - 1] && raw1[i - 1].length >= 2 && raw1[i + 1] && raw1[i + 1].length >= 2 && ls[i].y - ls[i - 1].y < st.pitch * 1.8 && ls[i + 1].y - ls[i].y < st.pitch * 1.8 ? c : null));
+      const used = new Set();
+      for (let i = 0; i < ls.length;) {
+        if (!tab[i]) { i++; continue; }
+        let j = i + 1;
+        while (j < ls.length && tab[j] && ls[j].y - ls[j - 1].y < st.pitch * 2.6 && ls[j].y > ls[j - 1].y) j++;
+        const R = ls.slice(i, j), C = tab.slice(i, j), Rused = [...R];
+        i = j;
+        if (R.length < 3) continue;
+        const size = median(R.map(L => L.size));
+        const iv = C.flat().map(c => [c.x0, c.x1]).sort((a, b) => a[0] - b[0]), bands = [];
+        for (const v of iv) { const b = bands[bands.length - 1]; if (b && v[0] <= b[1] + 0.6 * size) b[1] = Math.max(b[1], v[1]); else bands.push([v[0], v[1]]); }
+        if (bands.length < 2) continue;
+        const bandOf = c => { const idx = bands.map((b, k) => (c.x0 < b[1] + 0.3 && c.x1 > b[0] - 0.3) ? k : -1).filter(k => k >= 0); return [idx[0], idx[idx.length - 1]]; };
+        if (C.filter(cs => new Set(cs.map(c => bandOf(c)[0])).size >= 2).length < 0.7 * R.length) continue;
+        const lens = C.flat().map(c => c.items.reduce((n, r) => n + r.str.length, 0));
+        if (lens.reduce((a, b) => a + b, 0) / lens.length > 45 || median(lens) > 30) continue;   // texto corrido com vãos largos, não tabela
+        if (bands.length === 2 && C.filter(cs => /^(\(?[a-z0-9]{1,3}[.)]|[•▪◦●■–—-])$/i.test(cs[0].items.map(r => r.str).join('').trim())).length >= 0.7 * R.length) continue;   // lista com marcador
+        const colCells = bands.map(() => []);
+        const rows = R.map((L, k) => {
+          const row = bands.map(() => null);
+          for (const c of C[k]) {
+            const [bi, bj] = bandOf(c), cell = { runs: buildRuns(c.items, L.size, L.y, P.pn), span: bj - bi + 1, x0: c.x0, x1: c.x1 };
+            if (!cell.runs.length) continue;
+            if (!row[bi]) { row[bi] = cell; if (cell.span === 1) colCells[bi].push(cell); }
+          }
+          return row;
+        });
+        for (let k = 1; k < Math.min(rows.length, 4); k++) {   // cabeçalho de várias linhas: células de colunas diferentes, quase na mesma altura, formam uma só linha
+          const A = rows[k - 1], B = rows[k];
+          if (R[k].y - R[k - 1].y < 1.15 * size && A.every((c, ci) => !(c && B[ci]))) {
+            B.forEach((c, ci) => { if (c && !A[ci]) A[ci] = c; }); rows.splice(k, 1); R.splice(k, 1); k--;
+          }
+        }
+        const sd = a => { if (a.length < 2) return 1e9; const m = a.reduce((x, y) => x + y, 0) / a.length; return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length); };
+        const align = colCells.map(cc => {
+          const l = sd(cc.map(c => c.x0)), r = sd(cc.map(c => c.x1)), m = sd(cc.map(c => (c.x0 + c.x1) / 2));
+          return cc.length >= 2 && r < 0.6 * l && r <= m ? 'right' : cc.length >= 2 && m < 0.6 * l && m < r ? 'center' : 'left';
+        });
+        const head = R[0].bold;
+        P.tabs.push({ t: 'table', rows, align, head, top: R[0].top, pageNo: P.pn });
+        Rused.forEach(L => used.add(L));
+      }
+      if (used.size) P.lines = ls.filter(L => !used.has(L));
+    }
+
+    // renderiza capa, figuras e equações (uma vez por página)
+    for (const P of pages) {
+      if (!P.figs.length && !P.glyphs.length && !(cover && P.pn === 1)) continue;
+      say(`Gerando imagens… página ${P.pn} de ${N}`); await tick();
+      const page = await doc.getPage(P.pn), { cv, scale } = await render(page, P.vp, P.figs.some(f => f.eq) || P.glyphs.length ? 3.6 : 2.5);
+      for (const g of P.glyphs) {
+        const x = Math.max(0, Math.floor(g.box[0] * scale)), y = Math.max(0, Math.floor(g.box[1] * scale));
+        const w = Math.min(cv.width - x, Math.ceil((g.box[2] - g.box[0]) * scale)), h = Math.min(cv.height - y, Math.ceil((g.box[3] - g.box[1]) * scale));
+        if (w < 2 || h < 2) continue;
+        const d = cv.getContext('2d').getImageData(x, y, w, h).data; let ink = false;
+        for (let k = 0; k < d.length; k += 4) if (d[k] + d[k + 1] + d[k + 2] < 600) { ink = true; break; }
+        if (ink) { g.ok = true; images.push({ name: `img/g${g.id}.jpg`, bytes: await jpeg(cv, x, y, w, h) }); }
+      }
+      if (cover && P.pn === 1) cover = { name: 'img/capa.jpg', bytes: await jpeg(cv, 0, 0, cv.width, cv.height), w: cv.width, h: cv.height };
+      for (const [i, f] of P.figs.entries()) {
+        const x = Math.max(0, Math.floor(f.box[0] * scale)), y = Math.max(0, Math.floor(f.box[1] * scale));
+        const w = Math.min(cv.width - x, Math.ceil((f.box[2] - f.box[0]) * scale)), h = Math.min(cv.height - y, Math.ceil((f.box[3] - f.box[1]) * scale));
+        if (w < 8 || h < 8) { f.skip = true; continue; }
+        f.src = f.page ? `img/p${P.pn}.jpg` : `img/p${P.pn}-${i + 1}.jpg`; f.w = w; f.h = h;
+        const t = document.createElement('canvas'); t.width = t.height = 8; t.getContext('2d').drawImage(cv, x, y, w, h, 0, 0, 8, 8);   // impressão digital 8x8 do desenho
+        const px = t.getContext('2d').getImageData(0, 0, 8, 8).data, gray = []; for (let k = 0; k < 256; k += 4) gray.push(px[k] + px[k + 1] + px[k + 2]);
+        const mean = gray.reduce((a, b) => a + b, 0) / 64; f.hash = gray.map(v => v > mean ? 1 : 0);
+        images.push({ name: f.src, bytes: await jpeg(cv, x, y, w, h) });
+      }
+      P.figs = P.figs.filter(f => !f.skip); page.cleanup();
+    }
+    // o mesmo desenho, na mesma posição, em várias páginas é decoração (logotipo, faixa): sai
+    {
+      const sig = f => [f.box[0], f.box[1], f.box[2] - f.box[0], f.box[3] - f.box[1]].map(v => Math.round(v / 6)).join('|'), by = new Map();
+      for (const P of pages) for (const f of P.figs) if (!f.page && !f.eq) (by.get(sig(f)) || by.set(sig(f), []).get(by.get(sig(f)) ? sig(f) : sig(f))).push(f);
+      const drop = new Set();
+      for (const list of by.values()) {
+        if (list.length < 3) continue;
+        for (const f of list) if (list.filter(g => g.hash.reduce((n, v, k) => n + (v !== f.hash[k] ? 1 : 0), 0) <= 4).length >= 3 && list.length >= Math.min(3, 0.1 * N)) drop.add(f);
+      }
+      if (drop.size) {
+        const names = new Set([...drop].map(f => f.src));
+        for (let k = images.length - 1; k >= 0; k--) if (names.has(images[k].name)) images.splice(k, 1);
+        for (const P of pages) P.figs = P.figs.filter(f => !drop.has(f));
+      }
+    }
 
     // 4) linhas -> blocos (parágrafos, títulos, figuras, notas)
     const blocks = [];
@@ -1076,7 +1284,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
       for (const r of L.runs) {
         const l = B.runs[B.runs.length - 1];
-        if (l && l.b === r.b && l.i === r.i && l.sup === r.sup) l.t += r.t; else B.runs.push({ ...r });
+        if (l && l.b === r.b && l.i === r.i && l.m === r.m && l.sup === r.sup) l.t += r.t; else B.runs.push({ ...r });
       }
       B.lines.push(L);
     };
@@ -1085,6 +1293,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const ca = cls(A), cb = cls(B);
       if (ca !== cb) return true;
       const samePage = A.pn === B.pn && A.col === B.col;
+      if (cb === 'k') return !(samePage && B.y > A.y && B.y - A.y < 3.6 * Math.max(A.size, B.size) && Math.abs(A.cw - B.cw) < 0.25 * A.cw);   // listagem: lacunas viram linhas em branco
       if (cb === 'h') return !(samePage && B.y > A.y && B.y - A.y < 2.6 * B.size && Math.abs(A.size - B.size) < 0.1 * B.size && !!A.hd === !!B.hd);
       const sa = pages[A.pn - 1].st[A.col] || globAll, sb = pages[B.pn - 1].st[B.col] || globAll, s = B.size;
       const pc = sb.pitch * Math.min(1, s / body);
@@ -1092,7 +1301,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (LIST_START.test(B.text)) return true;
       const shortA = A.x1 < sa.Rm - (sa.just ? 1.0 * s : 0.22 * (sa.Rm - sa.Lm)), endA = TERMINAL.test(A.text);
       const lower = /^\p{Ll}/u.test(B.text);
-      if (blk.list) return (shortA && endA && !lower) || B.x0 < blk.lines[0].x0 - 0.8 * s;
+      if (blk.list) return shortA && endA && !lower;   // item de lista: as linhas seguintes (pendentes ou alinhadas) continuam nele
       if (lower && !endA) return false;
       const indent = B.x0 - sb.Lm, AI = A.x0 - sa.Lm;
       if (indent > 0.8 * s && !(AI > 0.8 * s && Math.abs(B.x0 - A.x0) < 0.5 * s)) return true;   // recuo de 1ª linha
@@ -1100,6 +1309,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (shortA && endA && !lower) return true;                                                // linha curta que fecha a frase
       return false;
     };
+    let noteSeq = 0;
     const attachNotes = (P, pageBlocks, noteLines) => {
       // agrupa as linhas pequenas do pé da página em notas numeradas
       const notes = []; let expect = null;
@@ -1118,14 +1328,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         }
         const mark = pageBlocks.flatMap(B => (B.runs || []).filter(r => r.sup > 0 && r.pn === P.pn && !r.noteId).map(r => ({ B, r })))
           .find(x => x.r.t.trim() === nt.label);
-        if (mark) { nt.id = `n${P.pn}-${nt.label.replace(/\W/g, 'x')}-${blocks.length}`; mark.r.noteId = nt.id; mark.r.t = mark.r.t.trim(); (mark.B.notes = mark.B.notes || []).push(nt); nt.linked = true; }
+        if (mark) { nt.id = `nt${++noteSeq}`; mark.r.noteId = nt.id; mark.r.t = mark.r.t.trim(); (mark.B.notes = mark.B.notes || []).push(nt); nt.linked = true; }
         else {
           // número da nota colado no fim de um título (sem sobrescrito): vira marcador
           const txt = B => B.runs.map(r => r.t).join(''), hB = /^\d+$/.test(nt.label) && pageBlocks.find(B => B.t === 'h' && B.runs.length && new RegExp('\\D\\s?' + nt.label + '\\s*$').test(txt(B)));
           if (hB) {
             const lr = hB.runs[hB.runs.length - 1], run = { t: nt.label, b: false, i: false, sup: 1, pn: P.pn };
             lr.t = lr.t.replace(new RegExp('\\s?' + nt.label + '\\s*$'), ''); hB.runs.push(run);
-            nt.id = `n${P.pn}-${nt.label}-${blocks.length}`; run.noteId = nt.id; nt.linked = true; (hB.notes = hB.notes || []).push(nt);
+            nt.id = `nt${++noteSeq}`; run.noteId = nt.id; nt.linked = true; (hB.notes = hB.notes || []).push(nt);
           } else { const B = pageBlocks[pageBlocks.length - 1]; if (B) (B.notes = B.notes || []).push(nt); }
         }
       }
@@ -1138,20 +1348,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         if (k < ls.length && NOTE_LABEL.test(ls[k].text) && ls.length - k < 0.5 * ls.length + 3) { noteLines = ls.slice(k); ls = ls.slice(0, k); }
       }
       const seq = [...ls];
-      for (const f of P.figs) {
+      for (const f of [...P.figs, ...P.tabs]) {
         const at = seq.findIndex(x => !x.t && x.top >= f.top - 1);
         seq.splice(at < 0 ? seq.length : at, 0, f);
       }
       const startIdx = blocks.length;
       for (let i = 0; i < seq.length; i++) {
         const L = seq[i];
-        if (L.t === 'img') { close(); blocks.push({ ...L, pageNo: P.pn, top: L.top }); continue; }
+        if (L.t === 'img' || L.t === 'table') { close(); blocks.push({ ...L, pageNo: P.pn, top: L.top }); continue; }
         if (!cur || breaks(cur, last, L)) {
           close();
           const c = cls(L);
-          cur = { t: c === 'h' ? 'h' : 'p', small: c === 's', runs: [], lines: [], pageNo: P.pn, top: L.top, list: c === 'b' && LIST_START.test(L.text) };
+          cur = { t: c === 'h' ? 'h' : c === 'k' ? 'code' : 'p', small: c === 's', runs: [], lines: [], pageNo: P.pn, top: L.top, list: c === 'b' && LIST_START.test(L.text) };
         }
-        append(cur, L); last = L;
+        if (cur.t === 'code') cur.lines.push(L); else append(cur, L);
+        last = L;
       }
       if (noteLines.length) attachNotes(P, [...blocks.slice(startIdx), ...(cur ? [cur] : [])].filter(B => B.t !== 'img'), noteLines);
     }
@@ -1161,11 +1372,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const B = blocks[i], C = blocks[i + 1];
       if (B.t === 'h' && C.t === 'p' && B.runs.length && /^\p{L}{1,2}$/u.test(B.runs.map(r => r.t).join('').trim())) {
         C.runs.unshift({ t: B.runs.map(r => r.t).join('').trim(), b: false, i: false, sup: 0, pn: B.pageNo });
+        if (B.notes) C.notes = [...B.notes, ...(C.notes || [])];
         blocks.splice(i, 1);
       }
     }
     // níveis de título pelo tamanho; título longo demais vira parágrafo
-    const textOf = B => B.runs ? B.runs.map(r => r.t).join('') : '';
+    const textOf = B => B.runs ? B.runs.map(r => r.t).join('').replace(/\uFFFC\d+\uFFFC/g, '') : '';
     const hsize = B => Math.round(Math.max(...B.lines.map(q => q.size)));
     const hs = [...new Set(blocks.filter(B => B.t === 'h').map(hsize))].sort((a, b) => b - a);
     for (const B of blocks) {
@@ -1183,7 +1395,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     for (let i = blocks.length - 2; i >= 0; i--) {
       const B = blocks[i], C = blocks[i + 1];
       if (B.t === 'h' && C.t === 'h' && B.pageNo === C.pageNo && CHAP_RE.test(textOf(B).trim()) && B.runs.length && C.runs.length && textOf(B).trim().split(' ').length <= 3) {
-        B.lvl = Math.min(B.lvl, C.lvl); B.runs.push({ t: ' — ', b: false, i: false, sup: 0, pn: B.pageNo }, ...C.runs); B.lines.push(...C.lines); blocks.splice(i + 1, 1);
+        B.lvl = Math.min(B.lvl, C.lvl); B.runs.push({ t: ' — ', b: false, i: false, sup: 0, pn: B.pageNo }, ...C.runs); B.lines.push(...C.lines); if (C.notes) B.notes = [...(B.notes || []), ...C.notes]; blocks.splice(i + 1, 1);
       }
     }
 
@@ -1261,9 +1473,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     // 7) XHTML
     say('Montando o EPUB…'); await tick();
+    const glyphHtml = (_, id) => glyphs[+id] && glyphs[+id].ok ? `<img class="g" src="img/g${id}.jpg" alt=""/>` : '';
     const runsHtml = runs => runs.map(r => {
-      let h = xesc(r.t);
+      let h = xesc(r.t).replace(/\uFFFC(\d+)\uFFFC/g, glyphHtml);
       if (r.sup > 0) h = `<sup>${h}</sup>`; else if (r.sup < 0) h = `<sub>${h}</sub>`;
+      if (r.m) h = `<code>${h}</code>`;
       if (r.i) h = `<i>${h}</i>`;
       if (r.b) h = `<b>${h}</b>`;
       if (r.noteId) h = `<a epub:type="noteref" id="r-${r.noteId}" href="#${r.noteId}">${h}</a>`;
@@ -1280,14 +1494,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       fileOf[i] = curFile.name;
       const id = ids.has(i) ? ` id="${ids.get(i)}"` : '';
       let h;
-      if (B.t === 'img') h = `<div class="${B.page ? 'pg' : 'fig'}"${id}><img src="${B.src}" alt=""/></div>`;
+      if (B.t === 'img') {
+        const sz = B.page ? '' : ` style="width:${((B.box[2] - B.box[0]) / body).toFixed(2)}em;max-width:100%"`, alt = xesc(B.alt || '');
+        h = B.eq ? `<p class="eq"${id}><img src="${B.src}" alt="${alt}"${sz}/></p>` : `<div class="${B.page ? 'pg' : 'fig'}"${id}><img src="${B.src}" alt="${alt}"${sz}/></div>`;
+      }
+      else if (B.t === 'table') {
+        const tr = (row, k) => `<tr>${row.map((c, ci) => c ? `<t${k && B.head ? 'h' : 'd'}${c.span > 1 ? ` colspan="${c.span}"` : ''}${B.align[ci] !== 'left' ? ` style="text-align:${B.align[ci]}"` : ''}>${runsHtml(c.runs)}</t${k && B.head ? 'h' : 'd'}>` : '<td></td>').join('')}</tr>`;
+        h = `<table${id}>${B.head ? `<thead>${tr(B.rows[0], 1)}</thead>` : ''}<tbody>${B.rows.slice(B.head ? 1 : 0).map(r => tr(r, 0)).join('')}</tbody></table>`;
+      }
+      else if (B.t === 'code') {
+        const minX = Math.min(...B.lines.map(L => L.x0)), out = []; let prev = null;
+        for (const L of B.lines) {
+          if (prev) for (let k = Math.round((L.y - prev.y) / (prev.size * 1.25)) - 1; k > 0; k--) out.push('');
+          out.push(' '.repeat(Math.min(60, Math.round((L.x0 - minX) / L.cw))) + L.code); prev = L;
+        }
+        h = `<pre${id}><code>${xesc(out.join('\n'))}</code></pre>`;
+      }
       else if (B.t === 'h') h = `<h${B.lvl}${id}>${runsHtml(B.runs.map(r => ({ ...r, b: false })))}</h${B.lvl}>`;
       else {
         const c = [B.small && 's', B.center && 'c', B.quote && 'q', B.list && 'l', afterBreak && 'f'].filter(Boolean).join(' ');
         h = `<p${id}${c ? ` class="${c}"` : ''}>${runsHtml(B.runs)}</p>`;
       }
       afterBreak = B.t !== 'p';
-      curFile.html.push(h); curFile.size += textOf(B).length + 20;
+      curFile.html.push(h); curFile.size += (B.t === 'table' ? B.rows.length * 40 : B.t === 'code' ? B.lines.reduce((n, L) => n + L.code.length, 0) : textOf(B).length) + 20;
       for (const nt of B.notes || []) {
         if (nt.linked) curFile.notes.push(`<aside epub:type="footnote" id="${nt.id}"><p><a href="#r-${nt.id}">${xesc(nt.label)}</a> ${runsHtml(nt.runs)}</p></aside>`);
         else curFile.html.push(`<p class="s">${runsHtml(nt.runs)}</p>`);
@@ -1336,10 +1565,18 @@ h1 { font-size: 1.6em; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; } h4 
 sup, sub { font-size: .7em; line-height: 0; }
 a { color: inherit; text-decoration: none; }
 a[epub|type~="noteref"] { vertical-align: super; font-size: .75em; }
+pre { font: .8em/1.3 monospace; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; margin: .8em 0; padding: .5em; background: rgba(128,128,128,.12); }
+code { font-family: monospace; font-size: .9em; }
+pre code { font-size: 1em; }
 aside { font-size: .85em; margin: .3em 0; }
 aside p { text-indent: 0; text-align: left; }
 .fig { text-align: center; margin: 1em 0; }
-.fig img { max-width: 100%; }
+.fig img, .eq img { max-width: 100%; height: auto; }
+img.g { height: 1.28em; vertical-align: -0.36em; }
+p.eq { text-align: center; text-indent: 0; margin: .6em 0; }
+table { border-collapse: collapse; margin: .9em auto; max-width: 100%; font-size: .9em; }
+th, td { padding: .2em .55em; border: 1px solid rgba(128,128,128,.5); vertical-align: top; }
+th { font-weight: bold; }
 .pg { text-align: center; margin: 0; page-break-before: always; page-break-after: always; }
 .pg img, .cover img { max-width: 100%; max-height: 100%; }
 .cover { text-align: center; margin: 0; padding: 0; }
