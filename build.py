@@ -17,6 +17,7 @@ html = (root / "src" / "template.html").read_text(encoding="utf-8")
 for marker, f in (("/*PDFLIB*/", "pdf-lib.min.js"), ("/*FONTKIT*/", "fontkit.umd.min.js"), ("/*JSZIP*/", "jszip.min.js"),
                   ("/*PDFJS*/", "pdf.min.js"), ("/*PDFJSWORKER*/", "pdf.worker.min.js")):
     html = html.replace(marker, esc((v / f).read_text(encoding="utf-8")))
+html = html.replace("/*AZW3*/", esc((root / "src" / "azw3.js").read_text(encoding="utf-8")))
 html = html.replace("/*FONTS*/{}", json.dumps(fonts))
 
 out = root / "index.html"

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Converterias</title>
-<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB, juntar PDFs ou EPUBs e imagens para PDF e vice-versa).">
+<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB, juntar PDFs ou EPUBs, imagens para PDF e vice-versa, organizar páginas de PDF e gerar AZW3 para Kindle).">
 <meta name="theme-color" content="#2f6fed">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -45,6 +45,16 @@
   small { color:var(--muted); display:block; margin-top:14px; font-size:.8rem; }
   .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
   #list .mv { display:flex; gap:6px; margin-top:6px; } #list .mv button { width:auto; padding:4px 12px; font-size:.9rem; background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .orginfo { font-size:.85rem; color:var(--muted); margin-bottom:10px; word-break:break-word; }
+  .orgrow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; } .orgrow > button:not(.sm) { flex:1 1 40%; }
+  button.sm { width:auto; padding:8px 12px; font-size:.85rem; } .orgrow .inl { font-size:.85rem; color:var(--muted); } .orgrow input[type=number] { width:72px; padding:8px; font-size:.95rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); }
+  #orgGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; margin-top:12px; }
+  .oc { border:2px solid var(--border); border-radius:8px; padding:6px 4px 4px; text-align:center; background:var(--bg); cursor:pointer; user-select:none; -webkit-user-select:none; }
+  .oc.sel { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 16%, var(--bg)); } .oc.drag { opacity:.4; } .oc.over { outline:2px dashed var(--accent); }
+  .oc .tw { height:130px; display:flex; align-items:center; justify-content:center; color:var(--muted); } .oc canvas { max-width:100%; max-height:130px; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.3); pointer-events:none; }
+  .oc .no { font-size:.8rem; margin-top:4px; font-weight:600; } .oc .no span { font-weight:400; color:var(--muted); font-size:.7rem; }
+  #orgAct { position:sticky; bottom:8px; display:flex; gap:6px; margin-top:12px; padding:8px; background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.25); }
+  #orgAct button { flex:1; padding:10px 0; font-size:1.05rem; }
   .tabs button { flex:1 1 28%; padding:10px; background:transparent; color:var(--accent); border:2px solid var(--accent); }
   .tabs button.on { background:var(--accent); color:#fff; }
 </style>
@@ -60,6 +70,8 @@
     <button type="button" data-mode="merge">Juntar</button>
     <button type="button" data-mode="i2p">Imagens → PDF</button>
     <button type="button" data-mode="p2i">PDF → Imagens</button>
+    <button type="button" data-mode="org">Organizar PDF</button>
+    <button type="button" data-mode="kindle">Para Kindle (AZW3)</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -119,6 +131,25 @@
     <input id="xPages" type="text" placeholder="Todas. Ou: 1-5, 8, 10-12" autocomplete="off">
   </div>
 
+  <div class="card" id="optOrg" hidden>
+    <div id="orgInfo" class="orginfo">Escolha um PDF para ver as páginas.</div>
+    <div class="orgrow">
+      <button type="button" class="alt sm" data-org="all">Todas</button><button type="button" class="alt sm" data-org="none">Nenhuma</button><button type="button" class="alt sm" data-org="inv">Inverter seleção</button>
+      <button type="button" class="alt sm" data-org="odd">Ímpares</button><button type="button" class="alt sm" data-org="even">Pares</button>
+    </div>
+    <div class="orgrow">
+      <button type="button" class="alt sm" id="orgUndo" data-org="undo">Desfazer</button><button type="button" class="alt sm" data-org="rev">Inverter ordem</button>
+      <span class="inl">Levar selecionadas à posição</span><input id="orgPos" type="number" min="1" value="1" inputmode="numeric"><button type="button" class="sm" id="orgGo">Ir</button>
+    </div>
+    <div class="orgrow"><button type="button" id="orgSave">Salvar PDF</button><button type="button" class="alt" id="orgSaveSel">Salvar só as selecionadas</button></div>
+    <div id="orgOut"></div>
+    <div id="orgGrid"></div>
+    <div id="orgAct">
+      <button type="button" data-org="first" title="Para o início">⇤</button><button type="button" data-org="left" title="Uma para trás">◀</button><button type="button" data-org="right" title="Uma para frente">▶</button><button type="button" data-org="last" title="Para o fim">⇥</button>
+      <button type="button" data-org="ccw" title="Girar à esquerda">↺</button><button type="button" data-org="cw" title="Girar à direita">↻</button><button type="button" data-org="dup" title="Duplicar">⧉</button><button type="button" data-org="del" title="Remover">✕</button>
+    </div>
+  </div>
+
   <button id="go" disabled>Converter</button>
   <button id="cancel" type="button" class="alt" style="display:none;margin-top:8px">Cancelar</button>
   <div id="status"></div>
@@ -136,12 +167,15 @@
 <script>/*JSZIP*/</script>
 <script>/*PDFJS*/</script>
 <script type="text/plain" id="pdfWorker">/*PDFJSWORKER*/</script>
+<script>/*AZW3*/</script>
 <script>const FONT_DATA = /*FONTS*/{};</script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
   const fileEl = $('file'), go = $('go'), statusEl = $('status'), listEl = $('list'),
         outBtns = $('outBtns'), zipBtn = $('zipBtn'), sepBtn = $('sepBtn'), shareBtn = $('shareBtn');
+  let org = null;   // Organizar: { file, doc, n, thumbs, pages: [{ src, rot, sel }], hist }
+  const orgGrid = $('orgGrid');
   let files = [], results = [], thumbs = [], zipUrl = null, items = [], busy = false;
   const MODES = {
     e2p: { pick: 'Toque para escolher um ou mais .epub', accept: '.epub,application/epub+zip', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
@@ -152,11 +186,15 @@
            note: 'Junta imagens em um PDF, uma por página, na ordem da lista. JPEG e PNG entram sem recompressão; fotos giradas pelo celular (EXIF) saem na posição certa. Dá para escolher imagens em várias vezes.' },
     p2i: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'png', mime: 'image/png', many: 'imagens',
            note: 'Cada página do PDF vira uma imagem, nomeada Arquivo - 001.png. Com mais de uma imagem você baixa tudo em um ZIP. Resoluções altas em PDFs grandes consomem bastante memória do aparelho.' },
+    kindle: { pick: 'Toque para escolher um ou mais .epub ou .pdf', accept: '.epub,.pdf,application/epub+zip,application/pdf', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'AZW3',
+              note: 'Gera AZW3 (KF8), o formato que o Kindle abre por cabo USB: copie o arquivo para a pasta "documents" do Kindle. EPUB vira AZW3 direto; PDF vira EPUB primeiro (com as opções acima) e depois AZW3. O AZW3 não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Fontes embutidas no EPUB são descartadas (o Kindle usa as dele). Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
+    org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
+           note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
              note: 'Junta vários PDFs em um PDF, ou vários EPUBs em um EPUB, na ordem da lista. O PDF ganha um marcador por arquivo (com os marcadores originais dentro); o EPUB ganha um sumário com um item por livro. Dá para escolher arquivos de pastas diferentes em várias vezes.' },
   };
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : 'e2p';
 
   let cancelled = false;
   const say = (msg, err) => { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; };
@@ -191,7 +229,9 @@
   };
   const pickFiles = list => {
     files = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (mode === 'org') files = files.slice(0, 1);
     showFiles();
+    if (mode === 'org' && files.length) orgLoad(files[0]);
   };
   fileEl.addEventListener('change', () => {
     if (!ordered(mode)) return pickFiles(fileEl.files);
@@ -210,7 +250,10 @@
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i';
+    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
+    go.style.display = m === 'org' ? 'none' : '';   // no Organizar, os botões de salvar ficam junto das páginas
+    if (m === 'org') $('orgOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
+    listEl.hidden = m === 'org'; orgReset();
     go.textContent = m === 'merge' ? 'Juntar' : m === 'i2p' ? 'Criar PDF' : 'Converter';
     fileEl.accept = MODES[m].accept; fileEl.value = '';
     $('note').textContent = MODES[m].note;
@@ -218,7 +261,7 @@
   };
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -1674,7 +1717,7 @@
       if (r.m) h = `<code>${h}</code>`;
       if (r.i) h = `<i>${h}</i>`;
       if (r.b) h = `<b>${h}</b>`;
-      if (r.noteId) h = `<a epub:type="noteref" id="r-${r.noteId}" href="#${r.noteId}">${h}</a>`;
+      if (r.noteId) h = `<a epub:type="noteref" class="noteref" id="r-${r.noteId}" href="#${r.noteId}">${h}</a>`;
       return h;
     }).join('').replace(/<\/(b|i|sup|sub)><\1>/g, '');
     const files = [];   // { name, title, html, notes }
@@ -1759,6 +1802,7 @@ h1 { font-size: 1.6em; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; } h4 
 sup, sub { font-size: .7em; line-height: 0; }
 a { color: inherit; text-decoration: none; }
 a[epub|type~="noteref"] { vertical-align: super; font-size: .75em; }
+a.noteref { vertical-align: super; font-size: .75em; }
 pre { font: .8em/1.3 monospace; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; margin: .8em 0; padding: .5em; background: rgba(128,128,128,.12); }
 code { font-family: monospace; font-size: .9em; }
 pre code { font-size: 1em; }
@@ -1783,7 +1827,8 @@ th { font-weight: bold; }
       man.push('<item id="capa" href="capa.xhtml" media-type="application/xhtml+xml"/>');
       spine.push('<itemref idref="capa"/>');
     }
-    images.forEach((im, i) => { zip.file('OEBPS/' + im.name, im.bytes); man.push(`<item id="i${i + 1}" href="${im.name}" media-type="image/jpeg"/>`); });
+    const allHtml = files.map(f => f.html.join('\n') + '\n' + f.notes.join('\n')).join('\n');
+    images.filter(im => allHtml.includes(`"${im.name}"`)).forEach((im, i) => { zip.file('OEBPS/' + im.name, im.bytes); man.push(`<item id="i${i + 1}" href="${im.name}" media-type="image/jpeg"/>`); });   // só as imagens que o texto usa
     files.forEach((f, i) => {
       zip.file('OEBPS/' + f.name, page(f.title || title, f.html.join('\n') + (f.notes.length ? '\n' + f.notes.join('\n') : '')));
       man.push(`<item id="x${i + 1}" href="${f.name}" media-type="application/xhtml+xml"/>`);
@@ -1862,23 +1907,8 @@ ${spine.join('\n')}
     finally { if (doc) doc.destroy(); }
   }
 
-  async function mergePdfs(list, title, say) {
-    const { PDFDocument, PDFName, PDFHexString } = PDFLib;
-    const out = await PDFDocument.create();
-    const tops = [];
-    for (let i = 0; i < list.length; i++) {
-      say(`Juntando ${i + 1} de ${list.length}…`); setItem(i, 'Lendo…'); await tick();
-      const bytes = new Uint8Array(await list[i].arrayBuffer());
-      let src;
-      try { src = await PDFDocument.load(bytes, { updateMetadata: false }); }
-      catch (e) { throw new Error(`${list[i].name}: ` + (/encrypt/i.test(e.name + e.message) ? 'PDF protegido por senha.' : 'não consegui ler este PDF.')); }
-      const start = out.getPageCount(), n = src.getPageCount();
-      (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p));
-      const shift = ns => ns.map(x => ({ title: x.title, page: x.page + start, items: shift(x.items) }));
-      tops.push({ title: stem(list[i]), page: start, items: shift(await pdfOutline(bytes, n)) });
-      setItem(i, `✓ ${n} ${n > 1 ? 'páginas' : 'página'}`, 'ok'); await tick();
-    }
-    // marcadores: um por arquivo, com os marcadores originais dentro
+  function writeOutline(out, tops) {   // marcadores: [{ title, page, items }], com page = índice no PDF de saída
+    const { PDFName, PDFHexString } = PDFLib;
     const ctx = out.context, pgs = out.getPages(), rootRef = ctx.nextRef();
     const build = (nodes, parent) => {
       const refs = nodes.map(() => ctx.nextRef());
@@ -1895,6 +1925,25 @@ ${spine.join('\n')}
     ctx.assign(rootRef, ctx.obj({ Type: 'Outlines', First: k.first, Last: k.last, Count: tops.length }));
     out.catalog.set(PDFName.of('Outlines'), rootRef);
     out.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+  }
+
+  async function mergePdfs(list, title, say) {
+    const { PDFDocument } = PDFLib;
+    const out = await PDFDocument.create();
+    const tops = [];
+    for (let i = 0; i < list.length; i++) {
+      say(`Juntando ${i + 1} de ${list.length}…`); setItem(i, 'Lendo…'); await tick();
+      const bytes = new Uint8Array(await list[i].arrayBuffer());
+      let src;
+      try { src = await PDFDocument.load(bytes, { updateMetadata: false }); }
+      catch (e) { throw new Error(`${list[i].name}: ` + (/encrypt/i.test(e.name + e.message) ? 'PDF protegido por senha.' : 'não consegui ler este PDF.')); }
+      const start = out.getPageCount(), n = src.getPageCount();
+      (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p));
+      const shift = ns => ns.map(x => ({ title: x.title, page: x.page + start, items: shift(x.items) }));
+      tops.push({ title: stem(list[i]), page: start, items: shift(await pdfOutline(bytes, n)) });
+      setItem(i, `✓ ${n} ${n > 1 ? 'páginas' : 'página'}`, 'ok'); await tick();
+    }
+    writeOutline(out, tops);   // um marcador por arquivo, com os marcadores originais dentro
     out.setTitle(title); out.setProducer('Converterias'); out.setCreator('Converterias');
     say('Gerando o PDF…'); await tick();
     const bytes = await out.save();
@@ -2221,6 +2270,166 @@ ${spine.join('\n')}
     busy = false; go.disabled = !files.length; fileEl.disabled = false; $('cancel').style.display = 'none';
   }
 
+  // ---------- organizar páginas de um PDF ----------
+  const rotated = (base, deg) => {   // miniatura girada
+    const r = ((deg % 360) + 360) % 360, sw = r === 90 || r === 270, c = document.createElement('canvas');
+    c.width = sw ? base.height : base.width; c.height = sw ? base.width : base.height;
+    const x = c.getContext('2d'); x.translate(c.width / 2, c.height / 2); x.rotate(r * Math.PI / 180); x.drawImage(base, -base.width / 2, -base.height / 2);
+    return c;
+  };
+  function orgReset() {
+    if (org) { try { org.doc.destroy(); } catch (e) {} }
+    org = null; orgGrid.innerHTML = ''; $('orgInfo').textContent = 'Escolha um PDF para ver as páginas.';
+    ['orgSave', 'orgSaveSel', 'orgGo', 'orgUndo'].forEach(id => $(id).disabled = true);
+    $('orgAct').querySelectorAll('button').forEach(b => b.disabled = true);
+  }
+  function orgInfo() {
+    if (!org) return;
+    const sel = org.pages.filter(p => p.sel).length, done = org.thumbs.filter(Boolean).length;
+    $('orgInfo').textContent = `${org.file.name} · ${org.pages.length} ${org.pages.length === 1 ? 'página' : 'páginas'}${org.pages.length !== org.n ? ` (de ${org.n})` : ''} · ${sel} selecionada${sel === 1 ? '' : 's'}${done < org.n ? ` · miniaturas ${done}/${org.n}` : ''}`;
+    $('orgSave').disabled = !org.pages.length;
+    $('orgSaveSel').disabled = !sel;
+    $('orgGo').disabled = !sel;
+    $('orgUndo').disabled = !org.hist.length;
+    $('orgAct').querySelectorAll('button').forEach(b => b.disabled = !sel);
+  }
+  function orgFill(card) {
+    const pg = org.pages[+card.dataset.i], base = org.thumbs[pg.src], tw = card.querySelector('.tw');
+    if (base && base !== 'err') tw.replaceChildren(rotated(base, pg.rot)); else tw.textContent = base === 'err' ? '?' : '…';
+  }
+  function orgRender() {
+    orgGrid.innerHTML = '';
+    org.pages.forEach((pg, i) => {
+      const d = document.createElement('div');
+      d.className = 'oc' + (pg.sel ? ' sel' : ''); d.draggable = true; d.dataset.i = i;
+      d.innerHTML = `<div class="tw"></div><div class="no">${i + 1}<span>${pg.src !== i || pg.rot ? ` · orig. ${pg.src + 1}${pg.rot ? ' ↻' + ((pg.rot % 360 + 360) % 360) : ''}` : ''}</span></div>`;
+      orgFill(d); orgGrid.appendChild(d);
+    });
+    orgInfo();
+  }
+  function orgDo(fn) {   // aplica uma alteração com desfazer
+    org.hist.push(JSON.stringify(org.pages)); if (org.hist.length > 60) org.hist.shift();
+    fn(); outBtns.style.display = 'none'; say(''); orgRender();
+  }
+  async function orgLoad(file) {
+    orgReset(); initPdfjs();
+    let doc;
+    try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
+    catch (e) { say(`${file.name}: ${e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'não consegui ler este PDF.'}`, true); return; }
+    const o = org = { file, doc, n: doc.numPages, thumbs: new Array(doc.numPages).fill(null), pages: Array.from({ length: doc.numPages }, (_, i) => ({ src: i, rot: 0, sel: false })), hist: [] };
+    orgRender();
+    for (let i = 0; i < o.n && org === o; i++) {   // miniaturas, uma por vez, em segundo plano
+      try {
+        const page = await doc.getPage(i + 1), v1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 240 / Math.max(v1.width, v1.height) });
+        const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+        const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+        await page.render({ canvasContext: cx, viewport: vp }).promise; page.cleanup();
+        o.thumbs[i] = cv;
+      } catch (e) { o.thumbs[i] = org === o ? 'err' : null; }
+      if (org !== o) return;
+      orgGrid.querySelectorAll('.oc').forEach(c => { if (org.pages[+c.dataset.i].src === i) orgFill(c); });
+      orgInfo();
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  async function orgExport(onlySel) {
+    const o = org, list = o.pages.filter(p => !onlySel || p.sel);
+    if (!list.length) return;
+    busy = true; cancelled = false; outBtns.style.display = 'none';
+    ['orgSave', 'orgSaveSel'].forEach(id => $(id).disabled = true);
+    try {
+      say('Gerando o PDF…'); await tick();
+      const { PDFDocument, degrees } = PDFLib, bytes = new Uint8Array(await o.file.arrayBuffer());
+      let src;
+      try { src = await PDFDocument.load(bytes, { updateMetadata: false }); }
+      catch (e) { throw new Error(/encrypt/i.test(e.name + e.message) ? 'PDF protegido por senha.' : 'não consegui ler este PDF.'); }
+      const out = await PDFDocument.create(), firsts = [...new Set(list.map(p => p.src))];
+      const copies = new Map((await out.copyPages(src, firsts)).map((p, k) => [firsts[k], p])), pos = new Map();
+      for (let k = 0; k < list.length; k++) {   // 1ª ocorrência de cada página vem do lote; repetidas ganham cópia própria (cada uma com sua rotação)
+        const p = list[k], first = !pos.has(p.src);
+        const page = first ? copies.get(p.src) : (await out.copyPages(src, [p.src]))[0];
+        if (first) pos.set(p.src, k);
+        if (p.rot) page.setRotation(degrees((((page.getRotation().angle + p.rot) % 360) + 360) % 360));
+        out.addPage(page);
+        if (k % 25 === 24) await tick();
+      }
+      for (const [k, f] of [['Title', 'getTitle'], ['Author', 'getAuthor'], ['Subject', 'getSubject']]) { const v = src[f](); if (v) out['set' + k](v); }
+      out.setProducer('Converterias'); out.setCreator('Converterias');
+      const remap = ns => ns.flatMap(x => { const items = remap(x.items); return pos.has(x.page) ? [{ title: x.title, page: pos.get(x.page), items }] : items; });
+      const tree = remap(await pdfOutline(bytes, o.n));   // marcadores das páginas que ficaram
+      if (tree.length) writeOutline(out, tree);
+      const data = await out.save();
+      results.forEach(r => URL.revokeObjectURL(r.url)); results = [];
+      const name = `${stem(o.file).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim() || 'PDF'} (${onlySel ? 'selecionadas' : 'organizado'}).pdf`;
+      results.push({ name, url: URL.createObjectURL(new Blob([data], { type: 'application/pdf' })), bytes: data, mime: 'application/pdf' });
+      await showOut({ ext: 'pdf', mime: 'application/pdf', many: 'PDFs' });
+      say(`Pronto: ${out.getPageCount()} ${out.getPageCount() === 1 ? 'página' : 'páginas'} (${(data.length / 1048576).toFixed(1)} MB). Toque em baixar.`);
+    } catch (e) { console.error(e); say('Erro: ' + (e.message || e), true); }
+    busy = false; if (org === o) orgInfo();
+  }
+
+  orgGrid.addEventListener('click', e => {
+    const c = e.target.closest('.oc');
+    if (!c || !org) return;
+    const pg = org.pages[+c.dataset.i]; pg.sel = !pg.sel;
+    c.classList.toggle('sel', pg.sel); orgInfo();
+  });
+  let dragFrom = null;
+  orgGrid.addEventListener('dragstart', e => { const c = e.target.closest('.oc'); if (!c) return; dragFrom = +c.dataset.i; c.classList.add('drag'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(dragFrom)); });
+  orgGrid.addEventListener('dragend', () => { dragFrom = null; orgGrid.querySelectorAll('.drag,.over').forEach(c => c.classList.remove('drag', 'over')); });
+  orgGrid.addEventListener('dragover', e => { const c = e.target.closest('.oc'); if (!c || dragFrom == null) return; e.preventDefault(); orgGrid.querySelectorAll('.over').forEach(x => x.classList.remove('over')); c.classList.add('over'); });
+  orgGrid.addEventListener('drop', e => {
+    const c = e.target.closest('.oc');
+    if (!c || dragFrom == null || !org) return;
+    e.preventDefault();
+    const to = +c.dataset.i, from = dragFrom; dragFrom = null;
+    if (to !== from) orgDo(() => { const [m] = org.pages.splice(from, 1); org.pages.splice(to, 0, m); });
+  });
+
+  const orgSelect = fn => { if (!org) return; org.pages.forEach((p, i) => p.sel = fn(p, i)); orgRender(); };
+  const orgMove = d => orgDo(() => {   // sobe ou desce as selecionadas um lugar
+    const p = org.pages;
+    if (d < 0) for (let i = 1; i < p.length; i++) { if (p[i].sel && !p[i - 1].sel) [p[i - 1], p[i]] = [p[i], p[i - 1]]; }
+    else for (let i = p.length - 2; i >= 0; i--) { if (p[i].sel && !p[i + 1].sel) [p[i + 1], p[i]] = [p[i], p[i + 1]]; }
+  });
+  const orgMoveTo = at => orgDo(() => {   // leva as selecionadas, na mesma ordem, para a posição `at` (0 = início)
+    const sel = org.pages.filter(p => p.sel), rest = org.pages.filter(p => !p.sel);
+    rest.splice(Math.max(0, Math.min(at, rest.length)), 0, ...sel); org.pages = rest;
+  });
+  $('optOrg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-org]');
+    if (!b || !org || busy) return;
+    const a = b.dataset.org;
+    if (a === 'all') orgSelect(() => true);
+    else if (a === 'none') orgSelect(() => false);
+    else if (a === 'inv') orgSelect(p => !p.sel);
+    else if (a === 'odd') orgSelect((p, i) => i % 2 === 0);
+    else if (a === 'even') orgSelect((p, i) => i % 2 === 1);
+    else if (a === 'left') orgMove(-1);
+    else if (a === 'right') orgMove(1);
+    else if (a === 'first') orgMoveTo(0);
+    else if (a === 'last') orgMoveTo(1e9);
+    else if (a === 'cw') orgDo(() => org.pages.forEach(p => { if (p.sel) p.rot = (p.rot + 90) % 360; }));
+    else if (a === 'ccw') orgDo(() => org.pages.forEach(p => { if (p.sel) p.rot = (p.rot + 270) % 360; }));
+    else if (a === 'dup') orgDo(() => { org.pages = org.pages.flatMap(p => p.sel ? [p, { ...p, sel: false }] : [p]); });
+    else if (a === 'del') orgDo(() => { org.pages = org.pages.filter(p => !p.sel); });
+    else if (a === 'rev') orgDo(() => org.pages.reverse());
+    else if (a === 'undo') { if (org.hist.length) { org.pages = JSON.parse(org.hist.pop()); outBtns.style.display = 'none'; orgRender(); } }
+  });
+  $('orgGo').addEventListener('click', () => { if (org && !busy) orgMoveTo((parseInt($('orgPos').value, 10) || 1) - 1); });
+  $('orgSave').addEventListener('click', () => { if (org && !busy) orgExport(false); });
+  $('orgSaveSel').addEventListener('click', () => { if (org && !busy) orgExport(true); });
+
+  async function kindleConvert(file, say) {   // EPUB -> AZW3; PDF -> EPUB -> AZW3
+    const kind = await kindOf(file);
+    if (!kind) throw new Error('não é EPUB nem PDF.');
+    let epub, meta = {};
+    if (kind === 'pdf') { meta = await pdfToEpub(file, say); epub = meta.bytes; }
+    else epub = new Uint8Array(await file.arrayBuffer());
+    const a = await Azw3.convert(epub, { say, tick });
+    return { bytes: a.bytes, title: a.title, authors: a.authors, chapters: a.sections, garbledPages: meta.garbledPages };
+  }
+
   // ---------- lote ----------
   const save = (url, name) => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
 
@@ -2242,7 +2451,7 @@ ${spine.join('\n')}
 
   async function runBatch() {
     busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
-    const M = MODES[mode], convert = mode === 'p2e' ? pdfToEpub : epubToPdf;
+    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert }[mode] || epubToPdf;
     results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
     results = []; zipUrl = null; renderList();
     const used = new Map();
@@ -2304,7 +2513,7 @@ ${spine.join('\n')}
     try { await navigator.share({ files: results.map(r => new File([r.bytes], r.name, { type: r.mime })) }); }
     catch (e) { if (e.name !== 'AbortError') say('Não foi possível compartilhar: ' + (e.message || e), true); }
   });
-  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, { 'application/pdf': `PDFs (${results.length} livros).zip`, 'application/epub+zip': `EPUBs (${results.length} livros).zip` }[results[0].mime] || `Imagens (${results.length}).zip`); });
+  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, { 'application/pdf': `PDFs (${results.length} livros).zip`, 'application/epub+zip': `EPUBs (${results.length} livros).zip`, 'application/vnd.amazon.ebook': `AZW3 (${results.length} livros).zip` }[results[0].mime] || `Imagens (${results.length}).zip`); });
   sepBtn.addEventListener('click', async () => {
     sepBtn.disabled = true;
     for (let i = 0; i < results.length; i++) {
