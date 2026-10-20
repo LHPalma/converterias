@@ -1662,6 +1662,9 @@ const Manga = (() => {
     // ainda é calha. Valor escolhido por varredura em três corpora — acima disso,
     // páginas que funcionavam passam a ser recusadas.
     const TOL = opt.tol || 0.025;
+    // quanta tinta uma fileira precisa para valer como moldura, e em que janela procurar
+    // (digitalização torta espalha a linha da moldura por várias fileiras)
+    const RULE = opt.rule || 0.15, RULEWIN = opt.ruleWin || 2;
 
     // Separadores dentro de um retângulo, ao longo de um eixo. Há dois tipos: a calha
     // branca (faixa quase sem tinta) e a régua preta (faixa fina quase toda tinta),
@@ -1686,18 +1689,29 @@ const Manga = (() => {
       const inner = Math.max(1, a1 - a0);
       const lim2 = Math.max(1, Math.round(inner * TOL));
       const full2 = inner - Math.max(2, Math.round(inner * 0.06));
+      const cnt = new Int32Array(n);
+      for (let i = 0; i < n; i++) {
+        const k = (horiz ? r.y0 : r.x0) + i;
+        cnt[i] = horiz ? ink(a0, k, a1, k + 1) : ink(k, a0, k + 1, a1);
+      }
       for (let i = 0; i <= n; i++) {
-        let k2 = 0;
-        if (i < n) {
-          const k = (horiz ? r.y0 : r.x0) + i;
-          const c = horiz ? ink(a0, k, a1, k + 1) : ink(k, a0, k + 1, a1);
-          k2 = c <= lim2 ? 1 : c >= full2 ? 2 : 0;
-        }
+        const k2 = i < n ? (cnt[i] <= lim2 ? 1 : cnt[i] >= full2 ? 2 : 0) : 0;
         if (k2 !== kind) { close(i); if (k2) { s = i; kind = k2; } }
       }
       close(n);
-      // separador encostado na borda é margem ou moldura externa, não divisão
-      return runs.filter(g => g.a > 0 && g.b < n).sort((p, q) => p.a - q.a);
+
+      // Calha de verdade tem a moldura dos quadros encostada nos dois lados. Faixa
+      // branca sem isso é balão de fala atravessando o quadro, não divisão — era o
+      // que partia um quadro ao meio e fazia o zoom pegar só metade dele.
+      const nearRule = i => {
+        for (let k = Math.max(0, i - RULEWIN); k <= Math.min(n - 1, i + RULEWIN); k++)
+          if (cnt[k] >= inner * RULE) return true;
+        return false;
+      };
+      return runs
+        .filter(g => g.a > 0 && g.b < n)   // encostado na borda é margem, não divisão
+        .filter(g => g.dark || (nearRule(g.a - 1) && nearRule(g.b)))
+        .sort((p, q) => p.a - q.a);
     };
 
     // encolhe o retângulo até a tinta que ele contém
@@ -1714,24 +1728,33 @@ const Manga = (() => {
     const leaves = [];
     const cut = (r, depth) => {
       const rr = shrink(r);
+      rr.slot = { x0: r.sx0 ?? r.x0, y0: r.sy0 ?? r.y0, x1: r.sx1 ?? r.x1, y1: r.sy1 ?? r.y1 };
       if (rr.x1 - rr.x0 < MINSIDE || rr.y1 - rr.y0 < MINSIDE) return;
       if (depth > 6) { leaves.push(rr); return; }
       for (const horiz of [true, false]) {
         const runs = gutters(rr, horiz);
         if (!runs.length) continue;
+        // Dois recortes por pedaço: o do conteúdo (sem a calha, que é o que define a
+        // caixa do quadro) e o da fatia, que corta no meio do separador e portanto
+        // ladrilha o bloco sem vão — é dele que sai a área de toque.
         const base = horiz ? rr.y0 : rr.x0, end = horiz ? rr.y1 : rr.x1;
-        let prev = base;
+        const sBase = horiz ? r.y0 : r.x0, sEnd = horiz ? r.y1 : r.x1;
+        let prev = base, sPrev = sBase;
         const parts = [];
         for (const g of runs) {
-          // na calha branca o espaço some; na régua preta cada lado fica com metade
           const mid = base + ((g.a + g.b) >> 1);
-          parts.push([prev, g.dark ? mid : base + g.a]);
+          parts.push([prev, g.dark ? mid : base + g.a, sPrev, mid]);
           prev = g.dark ? mid : base + g.b;
+          sPrev = mid;
         }
-        parts.push([prev, end]);
-        for (const [p0, p1] of parts) {
+        parts.push([prev, end, sPrev, sEnd]);
+        for (const [p0, p1, s0, s1] of parts) {
           if (p1 - p0 <= 0) continue;
-          cut(horiz ? { x0: rr.x0, y0: p0, x1: rr.x1, y1: p1 } : { x0: p0, y0: rr.y0, x1: p1, y1: rr.y1 }, depth + 1);
+          const kx0 = r.sx0 ?? r.x0, kx1 = r.sx1 ?? r.x1;   // a fatia do pai no outro eixo
+          const ky0 = r.sy0 ?? r.y0, ky1 = r.sy1 ?? r.y1;
+          cut(horiz
+            ? { x0: rr.x0, y0: p0, x1: rr.x1, y1: p1, sx0: kx0, sy0: s0, sx1: kx1, sy1: s1 }
+            : { x0: p0, y0: rr.y0, x1: p1, y1: rr.y1, sx0: s0, sy0: ky0, sx1: s1, sy1: ky1 }, depth + 1);
         }
         return;
       }
@@ -1847,16 +1870,34 @@ const Manga = (() => {
     }).filter(u => u.s >= MINMAG);   // quadro que já ocupa a tela não ganha nada em ampliar
     useful.forEach(({ q, qw, qh, s }, i) => {
       const mw = Math.round(p.w * s), mh = Math.round(p.h * s);
-      const ox = Math.round(q.x0 * s - (dev.w - qw * s) / 2);
-      const oy = Math.round(q.y0 * s - (dev.h - qh * s) / 2);
+      const L = Math.round((dev.w - qw * s) / 2), T = Math.round((dev.h - qh * s) / 2);
+      const W = Math.round(qw * s), H = Math.round(qh * s);
+      const ox = Math.round(q.x0 * s) - L, oy = Math.round(q.y0 * s) - T;
       const id = `PV${i + 1}`;
       const pc = (v, t) => (v / t * 100).toFixed(2);
-      areas.push(`<div id="${id}" style="position:absolute;left:${pc(p.x + q.x0, dev.w)}%;` +
-                 `top:${pc(p.y + q.y0, dev.h)}%;width:${pc(qw, dev.w)}%;height:${pc(qh, dev.h)}%">` +
+
+      // área de toque: a fatia inteira, não a caixa justa, senão o vão entre quadros
+      // fica sem dono e o toque perto da borda cai no vizinho
+      const sl = q.slot || q;
+      const ax = Math.max(0, p.x + sl.x0), ay = Math.max(0, p.y + sl.y0);
+      const aw = Math.min(dev.w - ax, sl.x1 - sl.x0), ah = Math.min(dev.h - ay, sl.y1 - sl.y0);
+      areas.push(`<div id="${id}" style="position:absolute;left:${pc(ax, dev.w)}%;top:${pc(ay, dev.h)}%;` +
+                 `width:${pc(aw, dev.w)}%;height:${pc(ah, dev.h)}%">` +
                  `<a style="display:inline-block;width:100%;height:100%;" class="app-amzn-magnify" ` +
                  `data-app-amzn-magnify='{"targetId":"${id}-P", "ordinal":${i + 1}}'></a></div>`);
+
+      // máscara: tampa tudo fora do quadro, que é como o Guided View da Amazon isola um
+      // quadro — sem isso aparece pedaço do vizinho em volta
+      // a folga evita decepar balão que transborda a moldura do quadro
+      const pad = Math.round(Math.min(W, H) * 0.04);
+      const mL = Math.max(0, L - pad), mT = Math.max(0, T - pad);
+      const mR = Math.min(dev.w, L + W + pad), mB = Math.min(dev.h, T + H + pad);
+      const band = (x, y, bw, bh) => bw > 0 && bh > 0
+        ? `<div style="position:absolute;left:${x}px;top:${y}px;width:${bw}px;height:${bh}px;background:#ffffff"></div>` : '';
+      const mask = band(0, 0, dev.w, mT) + band(0, mB, dev.w, dev.h - mB) +
+                   band(0, mT, mL, mB - mT) + band(mR, mT, dev.w - mR, mB - mT);
       views.push(`<div class="PV-P" id="${id}-P"><img style="position:absolute;left:${-ox}px;top:${-oy}px" ` +
-                 `src="${file}" width="${mw}" height="${mh}"/></div>`);
+                 `src="${file}" width="${mw}" height="${mh}"/>${mask}</div>`);
     });
     if (!areas.length) return null;
     return `\n<div id="PV">\n${areas.join('\n')}\n</div>\n${views.join('\n')}`;
@@ -1889,11 +1930,15 @@ const Manga = (() => {
     let anyPanel = false, detOk = 0;
     const html = pages.map((p, i) => {
       const file = `img/p${i + 1}.${ext(p)}`;
-      if (meta.panels === 'auto' && p.det && p.det.ok) {
+      if (meta.panels === 'auto') {
+        // página recusada fica sem painel de propósito: quadrante arbitrário numa página
+        // e quadro de verdade na outra é pior de usar do que não ter painel ali
+        if (!(p.det && p.det.ok)) return '';
         const s = detectedHtml(p, dev, p.det, file);
         if (s) { anyPanel = true; detOk++; return s; }
+        return '';
       }
-      const plan = panelPlan(p, dev, meta.panels === 'auto' ? 4 : meta.panels, meta.rtl);
+      const plan = panelPlan(p, dev, meta.panels, meta.rtl);
       if (!plan) return '';
       anyPanel = true;
       return panelHtml(plan, file);
