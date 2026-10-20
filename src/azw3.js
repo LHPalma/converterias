@@ -400,13 +400,15 @@ const Azw3 = (() => {
     };
 
     const cssRaw = new Map();   // caminho -> texto do CSS
+    const svgFlows = [];   // SVGs do corpo: cada um vira um fluxo próprio, referenciado por <img src="kindle:flow:…">
 
-    // documentos: serializa o corpo em texto com marcadores; guarda ids, links e pontos de corte
+    // documentos: árvore do corpo (nós de texto, elementos e blocos prontos como SVG), com aid/cid e marcadores de link e de imagem
     const ALLOWED_VOID = new Set(['br', 'hr', 'img', 'input', 'col', 'wbr', 'area', 'base', 'param', 'source', 'track']);
     const DROP = new Set(['script', 'style', 'audio', 'video', 'iframe', 'object', 'embed', 'canvas', 'map', 'noscript', 'template', 'math', 'head', 'title', 'meta', 'link']);
     const docs = [];
     const spinePaths = new Set(spine.map(s => s.path));
     const links = [];   // { path, frag } por marcador
+    let cidCounter = 0;   // cid: elementos com id dentro de tabelas (numeração do livro inteiro)
     for (let fi = 0; fi < spine.length; fi++) {
       const it = spine[fi];
       say(`Lendo capítulo ${fi + 1} de ${spine.length}…`); await tick();
@@ -425,22 +427,38 @@ const Azw3 = (() => {
       const body = d.querySelector('body') || d.documentElement;
       const base = fi * 1000000;
       let counter = 0;
-      const pieces = [];
-      const push = s => pieces.push(s);
       const aid = () => b32(base + counter++);
-      const walk = node => {
+      const svgString = svg => {   // SVG simples (p. ex. capa): mantém, trocando imagens por recursos
+        const rec = n => {
+          if (n.nodeType === 3) return xml(clean(n.nodeValue));
+          if (n.nodeType !== 1) return '';
+          const nm = n.localName;
+          if (/^(script|style|foreignObject)$/i.test(nm)) return '';
+          const at = [];
+          if (nm === 'svg') at.push('xmlns="http://www.w3.org/2000/svg"', 'xmlns:xlink="http://www.w3.org/1999/xlink"');
+          for (const a of n.attributes) {
+            if (/^xmlns(:|$)/.test(a.name)) continue;
+            if (nm === 'image' && /href$/.test(a.name)) { at.push(`xlink:href="${embed(resolve(it.path, a.value)).token}"`); continue; }
+            at.push(`${a.name}="${attr(clean(a.value))}"`);
+          }
+          const open = `<${nm}${at.length ? ' ' + at.join(' ') : ''}`;
+          return n.childNodes.length ? `${open}>${[...n.childNodes].map(rec).join('')}</${nm}>` : open + '/>';
+        };
+        return rec(svg);
+      };
+      const walk = (node, inTable) => {
+        const out = [];
         for (const c of node.childNodes) {
-          if (c.nodeType === 3) { push(xml(clean(c.nodeValue))); continue; }
+          if (c.nodeType === 3) { const s = clean(c.nodeValue); if (s) out.push({ k: 't', s }); continue; }
           if (c.nodeType !== 1) continue;
           const name = c.localName.toLowerCase();
           if (DROP.has(name)) continue;
-          if (name === 'svg') { serializeSvg(c); continue; }
-          let tag = '<' + name;
-          const attrs = [];
-          const myAid = aid();
+          if (name === 'svg') { svgFlows.push(svgString(c)); out.push({ k: 'raw', s: `<img src="\u0001SVG${svgFlows.length - 1}\u0002"/>` }); continue; }
+          const isVoid = ALLOWED_VOID.has(name), tbl = inTable || name === 'table';
+          const attrs = []; let hasId = false, res;
           for (const a of c.attributes) {
-            let an = a.name;
-            if (/^xmlns(:|$)/.test(an) || an === 'aid') continue;
+            const an = a.name;
+            if (/^xmlns(:|$)/.test(an) || an === 'aid' || an === 'cid') continue;
             if (/^epub:/.test(an) && an !== 'epub:type') continue;
             let v = a.value;
             if (name === 'a' && an === 'href') {
@@ -453,54 +471,34 @@ const Azw3 = (() => {
               continue;
             }
             if (name === 'img' && an === 'src') {
-              const p = resolve(it.path, v);
               if (/^data:/i.test(v)) continue;
-              attrs.push(`src="${embed(p).token}"`);
+              const e = embed(resolve(it.path, v)); res = e.n;
+              attrs.push(`src="${e.token}"`);
               continue;
             }
             v = clean(v);
             if (an === 'style') v = v.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (m, q, u) => /^(data:|#)/i.test(u) ? m : `url(${embed(resolve(it.path, u)).token})`);
+            if (an === 'id' && v) hasId = true;
             attrs.push(`${an}="${attr(v)}"`);
           }
-          attrs.push(`aid="${myAid}"`);
-          tag += (attrs.length ? ' ' + attrs.join(' ') : '');
-          if (ALLOWED_VOID.has(name)) { push(tag + '/>'); continue; }
-          push(tag + '>');
-          walk(c);
-          push(`</${name}>`);
+          const node2 = { k: 'e', name, attrs, void: isVoid, tbl, res, kids: [] };
+          if (!isVoid && !tbl) { node2.aid = aid(); attrs.push(`aid="${node2.aid}"`); }   // aid em quase todo elemento; não em vazios (img, br…) nem em tabelas
+          else if (tbl && hasId) attrs.push(`cid="c${++cidCounter}"`);
+          if (!isVoid) node2.kids = walk(c, tbl);
+          out.push(node2);
         }
-      };
-      const serializeSvg = svg => {   // SVG simples (p. ex. capa): mantém, trocando imagens por recursos
-        const rec = n => {
-          if (n.nodeType === 3) { push(xml(clean(n.nodeValue))); return; }
-          if (n.nodeType !== 1) return;
-          const nm = n.localName;
-          if (/^(script|style|foreignObject)$/i.test(nm)) return;
-          const at = [];
-          if (nm === 'svg') at.push('xmlns="http://www.w3.org/2000/svg"', 'xmlns:xlink="http://www.w3.org/1999/xlink"');
-          for (const a of n.attributes) {
-            if (/^xmlns(:|$)/.test(a.name)) continue;
-            let v = a.value;
-            if (nm === 'image' && /href$/.test(a.name)) { const p = resolve(it.path, v); at.push(`xlink:href="${embed(p).token}"`); continue; }
-            at.push(`${a.name}="${attr(clean(v))}"`);
-          }
-          push(`<${nm}${at.length ? ' ' + at.join(' ') : ''}`);
-          if (!n.childNodes.length) { push('/>'); return; }
-          push('>'); for (const k of n.childNodes) rec(k); push(`</${nm}>`);
-        };
-        rec(svg);
+        return out;
       };
       const bodyAttrs = [];
       for (const a of body.attributes || []) { if (/^xmlns(:|$)/.test(a.name) || a.name === 'aid') continue; if (/^epub:/.test(a.name) && a.name !== 'epub:type') continue; bodyAttrs.push(`${a.name}="${attr(clean(a.value))}"`); }
       counter = 0;
       const bodyAid = aid();
-      walk(body);
-      let text = pieces.join('');
-      if (!text.includes('<')) text = `<div aid="${aid()}"></div>`;   // documento vazio: um bloco vazio evita fragmento de tamanho zero
+      let tree = walk(body, false);
+      if (!tree.length || (tree.length === 1 && tree[0].k === 't' && !tree[0].s.trim())) tree = [{ k: 'e', name: 'div', attrs: [], void: false, tbl: false, kids: [], aid: aid() }], tree[0].attrs.push(`aid="${tree[0].aid}"`);   // documento vazio: um bloco vazio
       const title = (d.querySelector('title')?.textContent || '').trim() || book.title;
       const htmlLang = (d.documentElement.getAttribute('lang') || d.documentElement.getAttribute('xml:lang') || lang);
       const htmlAttrs = ['dir', 'class', 'id'].filter(k => d.documentElement.hasAttribute(k)).map(k => ` ${k}="${attr(clean(d.documentElement.getAttribute(k)))}"`).join('');
-      docs.push({ path: it.path, fi, text, sheets, bodyAttrs, bodyAid, title, htmlLang, htmlAttrs });
+      docs.push({ path: it.path, fi, tree, sheets, bodyAttrs, bodyAid, title, htmlLang, htmlAttrs });
     }
 
     // folhas de estilo -> fluxos
@@ -541,76 +539,101 @@ const Azw3 = (() => {
     const embedTo = text => text.replace(/\u0001EMB(\d+)\u0002/g, (m, n) => {
       const f = resNum.get(+n);
       return f ? `kindle:embed:${b32(f, 4)}${resources[f - 1].font ? '' : '?mime=' + resources[f - 1].mime}` : '';
-    });
-    // imagens sem recurso: remove o atributo vazio
-    const fixText = t => embedTo(t).replace(/<img ([^>]*?)src=""([^>]*)\/>/g, '').replace(/ xlink:href=""/g, '');
+    }).replace(/\u0001SVG(\d+)\u0002/g, (m, n) => `kindle:flow:${b32(cssNames.length + 1 + +n, 4)}?mime=image/svg+xml`);
     for (let i = 0; i < cssOut.length; i++) cssOut[i] = embedTo(cssOut[i]).replace(/@font-face\s*\{[^}]*url\(\)[^}]*\}/g, '').replace(/url\(\)/g, 'none');
 
-    // esqueleto e fragmentos de cada documento
-    const CH = 8192;
+    // ---- esqueleto e fragmentos, como o KindleGen: elementos grandes ficam no esqueleto só como "invólucro" e o conteúdo vira
+    // fragmentos bem formados (até 8 KB) inseridos nele; texto muito longo é cortado em pedaços (os seguintes dentro de <span>) ----
+    const LIMIT = 8192, BIG = '<span class="AmznBigTextBlock">', BIGEND = '</span>', BIGW = ulen(BIG + BIGEND);
+    const openOf = e => `<${e.name}${e.attrs.length ? ' ' + embedTo(e.attrs.join(' ')) : ''}${e.void ? '/>' : '>'}`;
+    const html = n => n.k === 't' ? xml(n.s) : n.k === 'raw' ? embedTo(n.s) : n.void ? openOf(n) : openOf(n) + n.kids.map(html).join('') + `</${n.name}>`;
+    const prune = kids => kids.filter(n => { if (n.k === 'e') { if (n.res !== undefined && !resNum.get(n.res)) return false; n.kids = prune(n.kids); } return true; });
+    const sz = n => n.sz ?? (n.sz = n.k === 't' ? ulen(xml(n.s)) : n.k === 'raw' ? ulen(embedTo(n.s)) : n.void ? ulen(openOf(n)) : ulen(openOf(n)) + n.kids.reduce((s, k) => s + sz(k), 0) + ulen(`</${n.name}>`));
+    const textPieces = s => {   // texto maior que o limite: 1º pedaço cru (até 8192 bytes), os demais em <span> (cabem em 8192 com o invólucro)
+      const out = []; let i = 0; const n = s.length;
+      while (i < n) {
+        const cap = out.length ? LIMIT - BIGW : LIMIT; let j = i, b = 0;
+        while (j < n) {
+          const c = s.charCodeAt(j), hi = c >= 0xd800 && c < 0xdc00, w = c === 38 ? 5 : c === 60 || c === 62 ? 4 : c < 0x80 ? 1 : c < 0x800 ? 2 : hi ? 4 : 3;
+          if (b + w > cap) break;
+          b += w; j += hi ? 2 : 1;
+        }
+        const piece = xml(s.slice(i, j));
+        out.push(out.length ? BIG + piece + BIGEND : piece); i = j;
+      }
+      return out;
+    };
     const files = [];
     for (const dc of docs) {
-      const body = fixText(dc.text);
-      // pontos de corte (limites de tag) e posição dos ids, no texto final
-      const cuts = [{ ci: 0, bo: 0 }], idOff = new Map();
-      { const re = /<([a-zA-Z][^\s>/]*)([^>]*?)\/?>/g; let m, last = 0, bo = 0;
-        while ((m = re.exec(body))) {
-          bo += ulen(body.slice(last, m.index)); cuts.push({ ci: m.index, bo });
-          const am = / (?:id|name)="([^"]*)"/g; let x;
-          while ((x = am.exec(m[2]))) { const key = x[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); if (!idOff.has(key)) idOff.set(key, bo); }
-          bo += ulen(m[0]); last = re.lastIndex; cuts.push({ ci: last, bo });
-        } }
-      // fatia em fragmentos de até CH bytes, em pontos seguros
-      const total = ulen(body), parts = [];
-      let startCi = 0, startBo = 0, lastGood = null;
-      for (const c of cuts) {
-        if (c.bo - startBo > CH && lastGood && lastGood.bo > startBo) { parts.push({ ci0: startCi, ci1: lastGood.ci, bo0: startBo, bo1: lastGood.bo }); startCi = lastGood.ci; startBo = lastGood.bo; lastGood = null; }
-        if (c.bo > startBo) lastGood = c;
-      }
-      parts.push({ ci0: startCi, ci1: body.length, bo0: startBo, bo1: total });
-      // evita fragmento vazio
-      const real = parts.filter(p => p.bo1 > p.bo0);
-      if (!real.length) real.push({ ci0: 0, ci1: 0, bo0: 0, bo1: 0 });
-      const chunkTexts = real.map(p => body.slice(p.ci0, p.ci1));
-      files.push({ dc, chunks: real.map((p, i) => ({ ...p, text: chunkTexts[i] })), idOff, title: dc.title });
+      dc.tree = prune(dc.tree);
+      const head = `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${attr(dc.htmlLang)}" xml:lang="${attr(dc.htmlLang)}"${dc.htmlAttrs}>\n  <head>\n    <title>${xml(clean(dc.title))}</title>\n    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n${dc.sheets.map(s => `<link rel="stylesheet" type="text/css" href="kindle:flow:${b32(cssFlow.get(s.path), 4)}?mime=text/css"/>\n`).join('')}  </head>\n  `;
+      let sk = head + `<body${dc.bodyAttrs.length ? ' ' + dc.bodyAttrs.join(' ') : ''} aid="${dc.bodyAid}">\n`.replace(/>\n$/, '>');
+      let skB = ulen(sk);
+      const chunks = [], shells = [];
+      const proc = (list, anchor) => {
+        let run = [], runB = 0;
+        const flush = () => {
+          if (!run.length) return;
+          chunks.push({ text: run.join(''), bytes: runB, insert: skB, sel: `${anchor.mode}-//*[@aid='${anchor.aid}']` });
+          run = []; runB = 0;
+        };
+        const add = (s, b) => { if (run.length && runB + b > LIMIT) flush(); run.push(s); runB += b; };
+        for (const n of list) {
+          if (n.k === 't') {
+            if (sz(n) <= LIMIT) add(xml(n.s), sz(n)); else textPieces(n.s).forEach(p => add(p, ulen(p)));
+            continue;
+          }
+          if (n.k === 'raw' || n.void || n.tbl || sz(n) <= LIMIT || !n.kids.length) { add(html(n), sz(n)); continue; }
+          flush();   // elemento grande: fica no esqueleto como invólucro; o conteúdo vira fragmentos dentro dele
+          const open = openOf(n), shell = { ids: [...open.matchAll(/ (?:id|name)="([^"]*)"/g)].map(m => m[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')), so: skB, chunkIdx: chunks.length };
+          shells.push(shell);
+          sk += open; skB += ulen(open);
+          proc(n.kids, { mode: 'P', aid: n.aid });
+          const close = `</${n.name}>`; sk += close; skB += ulen(close);
+          anchor = { mode: 'S', aid: n.aid };
+        }
+        flush();
+      };
+      proc(dc.tree, { mode: 'P', aid: dc.bodyAid });
+      const bodyClose = '</body>\n</html>\n';
+      files.push({ dc, headLen: ulen(head), skelText: sk + bodyClose, skelLen: skB + ulen(bodyClose), chunks, shells, title: dc.title });
     }
-
-    // posições: esqueletos em texto, fragmentos logo depois de cada esqueleto
-    const cssLinks = dc => dc.sheets.map(s => `<link rel="stylesheet" type="text/css" href="kindle:flow:${b32(cssFlow.get(s.path) , 4)}?mime=text/css"/>`).join('\n');
+    // posições: o esqueleto de cada arquivo, seguido pelos seus fragmentos
     let textPos = 0, fid = 0;
     for (const f of files) {
-      const dc = f.dc;
-      const head = `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${attr(dc.htmlLang)}" xml:lang="${attr(dc.htmlLang)}"${dc.htmlAttrs}>\n  <head>\n    <title>${xml(clean(dc.title))}</title>\n    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n${cssLinks(dc) ? cssLinks(dc) + '\n' : ''}  </head>\n  `;
-      const bodyOpen = `<body${dc.bodyAttrs.length ? ' ' + dc.bodyAttrs.join(' ') : ''} aid="${dc.bodyAid}">\n`;
-      const tailTxt = `</body>\n</html>\n`;
-      const sk = head + bodyOpen + tailTxt;
-      f.skelText = sk; f.skelStart = textPos; f.skelLen = ulen(sk); f.insert = ulen(head + bodyOpen); f.bodyTagPos = textPos + ulen(head);
+      f.skelStart = textPos; f.bodyTagPos = textPos + f.headLen;
       let rel = 0;
-      for (const ch of f.chunks) { ch.fid = fid++; ch.rel = rel; ch.len = ch.bo1 - ch.bo0; ch.key = textPos + f.insert + rel; rel += ch.len; }
+      for (const ch of f.chunks) { ch.fid = fid++; ch.rel = rel; ch.key = textPos + ch.insert + rel; rel += ch.bytes; }
       textPos += f.skelLen + rel;
+      // alvos de links e sumário: id -> { fid, off, pos }
+      f.idTarget = new Map();
+      for (const ch of f.chunks) {
+        const re = /<([a-zA-Z][^\s>/]*)([^>]*?)\/?>/g; let m, last = 0, bo = 0;
+        while ((m = re.exec(ch.text))) {
+          bo += ulen(ch.text.slice(last, m.index));
+          const am = / (?:id|name)="([^"]*)"/g; let x;
+          while ((x = am.exec(m[2]))) { const k = x[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); if (!f.idTarget.has(k)) f.idTarget.set(k, { fid: ch.fid, off: bo, pos: ch.key + bo }); }
+          bo += ulen(m[0]); last = re.lastIndex;
+        }
+      }
+      for (const sh of f.shells) {   // invólucro: aponta para o 1º fragmento dentro dele
+        const pos = f.skelStart + sh.so + f.chunks.filter(c => c.insert <= sh.so).reduce((s, c) => s + c.bytes, 0);
+        for (const k of sh.ids) if (!f.idTarget.has(k)) f.idTarget.set(k, { fid: f.chunks[sh.chunkIdx].fid, off: 0, pos });
+      }
     }
     const textLen = textPos;
-
-    // resolve os links (fid/offset) e posições de alvos
     const fileByPath = new Map(files.map(f => [f.dc.path, f]));
     const locate = (path, frag) => {
       const f = fileByPath.get(path);
       if (!f) return null;
-      if (frag && f.idOff.has(frag)) {
-        const o = f.idOff.get(frag);
-        let ch = f.chunks[0];
-        for (const c of f.chunks) if (o >= c.bo0) ch = c;
-        const off = o - ch.bo0;
-        return { fid: ch.fid, off, pos: ch.key + off };
-      }
-      return { fid: f.chunks[0].fid, off: 0, pos: f.bodyTagPos, file: true };
+      const t = frag && f.idTarget.get(frag);
+      return t || { fid: f.chunks[0].fid, off: 0, pos: f.bodyTagPos, file: true };
     };
-    for (const f of files) for (const ch of f.chunks) {
-      ch.text = ch.text.replace(/kindle:pos:fid:([0-9A-V]{4}):off:0{10}/g, (m, n) => {
-        const l = links[parseInt(n, 32)], t = l && locate(l.path, l.frag);
-        return t ? `kindle:pos:fid:${b32(t.fid, 4)}:off:${b32(t.off, 10)}` : m;
-      });
-    }
+    const patchLinks = s => s.replace(/kindle:pos:fid:([0-9A-V]{4}):off:0{10}/g, (m, n) => {
+      const l = links[parseInt(n, 32)], t = l && locate(l.path, l.frag);
+      return t ? `kindle:pos:fid:${b32(t.fid, 4)}:off:${b32(t.off, 10)}` : m;
+    });
+    for (const f of files) { f.skelText = patchLinks(f.skelText); for (const ch of f.chunks) ch.text = patchLinks(ch.text); }
 
     // texto final: fluxo 0 + CSS
     // ordem física: esqueleto inteiro e, em seguida, os fragmentos
@@ -618,7 +641,7 @@ const Azw3 = (() => {
     for (const f of files) { phys.push(enc.encode(f.skelText)); for (const ch of f.chunks) phys.push(enc.encode(ch.text)); }
     const mainText = cat(phys);
     if (mainText.length !== textLen) throw new Error(`Erro interno: tamanhos não batem (${mainText.length} x ${textLen}).`);
-    const flowTexts = cssOut.map(c => enc.encode(c.endsWith('\n') ? c : c + '\n'));
+    const flowTexts = [...cssOut.map(c => enc.encode(c.endsWith('\n') ? c : c + '\n')), ...svgFlows.map(s => enc.encode(embedTo(s).replace(/ xlink:href=""/g, '')))];
     const fullText = cat([mainText, ...flowTexts]);
     const fdst = []; { let p = 0; for (const b of [mainText, ...flowTexts]) { fdst.push([p, p + b.length]); p += b.length; } }
 
@@ -670,11 +693,12 @@ const Azw3 = (() => {
     const ncxRecs = [...buildIndex(ncxTagx, ncxEntries, labels.records.length), ...labels.records];
 
     // índice de fragmentos e de esqueletos
-    const selectors = files.map(f => `P-//*[@aid='${f.dc.bodyAid}']`);
-    const selC = buildCncx(selectors);
+    const selList = [], selIdx = new Map();   // seletor do elemento onde cada fragmento entra: "P-" dentro dele, "S-" logo depois dele
+    for (const f of files) for (const ch of f.chunks) if (!selIdx.has(ch.sel)) { selIdx.set(ch.sel, selList.length); selList.push(ch.sel); }
+    const selC = buildCncx(selList);
     const fragEntries = [];
     files.forEach((f, fi) => f.chunks.forEach(ch => {
-      fragEntries.push({ key: String(ch.key).padStart(10, '0'), ctrl: ctrlOf(15), data: cat([vwi(selC.offs[fi]), vwi(fi), vwi(ch.fid), vwi(ch.rel), vwi(ch.len)]) });
+      fragEntries.push({ key: String(ch.key).padStart(10, '0'), ctrl: ctrlOf(15), data: cat([vwi(selC.offs[selIdx.get(ch.sel)]), vwi(fi), vwi(ch.fid), vwi(ch.rel), vwi(ch.bytes)]) });
     }));
     const fragTagx = [[2, 1, 1], [3, 1, 2], [4, 1, 4], [6, 2, 8]].map(t => [...t, 0]);
     const fragRecs = [...buildIndex(fragTagx, fragEntries, selC.records.length), ...selC.records];
