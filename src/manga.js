@@ -226,7 +226,13 @@ const Manga = (() => {
       rr.slot = { x0: r.sx0 ?? r.x0, y0: r.sy0 ?? r.y0, x1: r.sx1 ?? r.x1, y1: r.sy1 ?? r.y1 };
       if (rr.x1 - rr.x0 < MINSIDE || rr.y1 - rr.y0 < MINSIDE) return;
       if (depth > 6) { leaves.push(rr); return; }
-      for (const horiz of [true, false]) {
+      // Mangá comum lê por fileiras, então o corte horizontal vem primeiro. Mas em
+      // 4-koma as tiras verticais atravessam a página inteira e cada uma é uma piada
+      // lida de cima a baixo: ali a vertical tem de vir antes, senão a ordem alterna
+      // entre as duas tiras. No topo, a existência de uma calha de altura inteira é
+      // justamente a assinatura do 4-koma.
+      const first = depth === 0 && gutters(rr, false).length ? [false, true] : [true, false];
+      for (const horiz of first) {
         const runs = gutters(rr, horiz);
         if (!runs.length) continue;
         // Dois recortes por pedaço: o do conteúdo (sem a calha, que é o que define a
@@ -243,6 +249,9 @@ const Manga = (() => {
           sPrev = mid;
         }
         parts.push([prev, end, sPrev, sEnd]);
+        // a ordem da recursão já é a ordem de leitura: fileiras de cima para baixo,
+        // colunas da direita para a esquerda em mangá
+        if (!horiz && opt.rtl !== false) parts.reverse();
         for (const [p0, p1, s0, s1] of parts) {
           if (p1 - p0 <= 0) continue;
           const kx0 = r.sx0 ?? r.x0, kx1 = r.sx1 ?? r.x1;   // a fatia do pai no outro eixo
@@ -270,22 +279,11 @@ const Manga = (() => {
         return true;
       });
 
-    // ordem de leitura: agrupa em faixas pela sobreposição vertical, faixas de cima
-    // para baixo; dentro da faixa, direita→esquerda em mangá
-    const rtl = opt.rtl !== false;
-    panels.sort((a, b) => a.y0 - b.y0);
-    const bands = [];
-    for (const p of panels) {
-      const b = bands.find(bd => Math.min(bd.y1, p.y1) - Math.max(bd.y0, p.y0) > (p.y1 - p.y0) * 0.45);
-      if (b) { b.items.push(p); b.y0 = Math.min(b.y0, p.y0); b.y1 = Math.max(b.y1, p.y1); }
-      else bands.push({ y0: p.y0, y1: p.y1, items: [p] });
-    }
-    bands.sort((a, b) => a.y0 - b.y0);
-    const ordered = [];
-    for (const b of bands) {
-      b.items.sort((p, q) => rtl ? q.x0 - p.x0 : p.x0 - q.x0);
-      ordered.push(...b.items);
-    }
+    // A ordem de leitura sai da própria árvore de cortes: cada corte já visita as
+    // partes na ordem certa, então a sequência em que as folhas foram coletadas é a
+    // sequência de leitura. Isso resolve de uma vez o mangá comum (fileiras) e o
+    // 4-koma (tiras), que uma regra geométrica sobre as caixas prontas não separa.
+    const ordered = panels;
 
     // moldura: quanto da borda do retângulo é tinta. Quadro de história em quadrinhos
     // costuma ser emoldurado; coluna de texto corrido não é — é assim que a página de
