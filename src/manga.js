@@ -108,6 +108,175 @@ const Manga = (() => {
     return out;
   }
 
+  // ---------- detecção de quadrinhos ----------
+  // Corte X-Y recursivo: acha as calhas (faixas de papel que atravessam o bloco
+  // inteiro) e parte ali, alternando os eixos. Resolve a diagramação em grade, que
+  // é a maioria; o que não se encaixa é recusado pela pontuação e cai no modo de
+  // quadrantes. Não trata painel diagonal nem sangrado — retângulo não representa.
+  function otsu(hist, total) {   // limiar automático: papel amarelado não aceita valor fixo
+    let sum = 0;
+    for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sumB = 0, wB = 0, best = 0, thr = 127;
+    for (let t = 0; t < 256; t++) {
+      wB += hist[t]; if (!wB) continue;
+      const wF = total - wB; if (!wF) break;
+      sumB += t * hist[t];
+      const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+      if (v > best) { best = v; thr = t; }
+    }
+    return thr;
+  }
+
+  function detectPanels(gray, w, h, opt = {}) {
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
+    const thr = Math.max(60, Math.min(otsu(hist, gray.length), 205));
+
+    // integral de tinta: conta pixels escuros de qualquer retângulo em tempo constante
+    const iw = w + 1, S = new Uint32Array(iw * (h + 1));
+    for (let y = 0; y < h; y++) {
+      let run = 0;
+      for (let x = 0; x < w; x++) {
+        if (gray[y * w + x] <= thr) run++;
+        S[(y + 1) * iw + (x + 1)] = S[y * iw + (x + 1)] + run;
+      }
+    }
+    const ink = (x0, y0, x1, y1) =>
+      S[y1 * iw + x1] - S[y0 * iw + x1] - S[y1 * iw + x0] + S[y0 * iw + x0];
+
+    const MINGUT = Math.max(3, Math.round(Math.min(w, h) * (opt.gutter || 0.012)));
+    const TOL = opt.tol || 0.005;
+
+    // Separadores dentro de um retângulo, ao longo de um eixo. Há dois tipos: a calha
+    // branca (faixa quase sem tinta) e a régua preta (faixa fina quase toda tinta),
+    // que é como ficam dois quadros encostados, sem branco entre eles.
+    const DARKMAX = Math.max(3, Math.round(Math.min(w, h) * 0.02));
+    const gutters = (r, horiz) => {
+      const n = horiz ? r.y1 - r.y0 : r.x1 - r.x0;
+      const span = horiz ? r.x1 - r.x0 : r.y1 - r.y0;
+      const lim = Math.max(1, Math.round(span * TOL));
+      const full = span - Math.max(2, Math.round(span * 0.06));
+      const runs = [];
+      let s = -1, kind = 0;   // 0 nenhum, 1 branco, 2 régua
+      const close = i => {
+        if (s < 0) return;
+        const len = i - s;
+        if (kind === 1 && len >= MINGUT) runs.push({ a: s, b: i, dark: false });
+        else if (kind === 2 && len >= 2 && len <= DARKMAX) runs.push({ a: s, b: i, dark: true });
+        s = -1; kind = 0;
+      };
+      for (let i = 0; i <= n; i++) {
+        let k2 = 0;
+        if (i < n) {
+          const k = (horiz ? r.y0 : r.x0) + i;
+          const c = horiz ? ink(r.x0, k, r.x1, k + 1) : ink(k, r.y0, k + 1, r.y1);
+          k2 = c <= lim ? 1 : c >= full ? 2 : 0;
+        }
+        if (k2 !== kind) { close(i); if (k2) { s = i; kind = k2; } }
+      }
+      close(n);
+      // separador encostado na borda é margem ou moldura externa, não divisão
+      return runs.filter(g => g.a > 0 && g.b < n).sort((p, q) => p.a - q.a);
+    };
+
+    // encolhe o retângulo até a tinta que ele contém
+    const shrink = r => {
+      let { x0, y0, x1, y1 } = r;
+      while (y0 < y1 - 1 && ink(x0, y0, x1, y0 + 1) === 0) y0++;
+      while (y1 > y0 + 1 && ink(x0, y1 - 1, x1, y1) === 0) y1--;
+      while (x0 < x1 - 1 && ink(x0, y0, x0 + 1, y1) === 0) x0++;
+      while (x1 > x0 + 1 && ink(x1 - 1, y0, x1, y1) === 0) x1--;
+      return { x0, y0, x1, y1 };
+    };
+
+    const MINSIDE = Math.round(Math.min(w, h) * 0.07);
+    const leaves = [];
+    const cut = (r, depth) => {
+      const rr = shrink(r);
+      if (rr.x1 - rr.x0 < MINSIDE || rr.y1 - rr.y0 < MINSIDE) return;
+      if (depth > 6) { leaves.push(rr); return; }
+      for (const horiz of [true, false]) {
+        const runs = gutters(rr, horiz);
+        if (!runs.length) continue;
+        const base = horiz ? rr.y0 : rr.x0, end = horiz ? rr.y1 : rr.x1;
+        let prev = base;
+        const parts = [];
+        for (const g of runs) {
+          // na calha branca o espaço some; na régua preta cada lado fica com metade
+          const mid = base + ((g.a + g.b) >> 1);
+          parts.push([prev, g.dark ? mid : base + g.a]);
+          prev = g.dark ? mid : base + g.b;
+        }
+        parts.push([prev, end]);
+        for (const [p0, p1] of parts) {
+          if (p1 - p0 <= 0) continue;
+          cut(horiz ? { x0: rr.x0, y0: p0, x1: rr.x1, y1: p1 } : { x0: p0, y0: rr.y0, x1: p1, y1: rr.y1 }, depth + 1);
+        }
+        return;
+      }
+      leaves.push(rr);
+    };
+    const page = shrink({ x0: 0, y0: 0, x1: w, y1: h });
+    cut(page, 0);
+
+    const pageArea = Math.max(1, (page.x1 - page.x0) * (page.y1 - page.y0));
+    const pw = page.x1 - page.x0, ph = page.y1 - page.y0;
+    const panels = leaves
+      .map(r => ({ ...r, area: (r.x1 - r.x0) * (r.y1 - r.y0) }))
+      .filter(r => {
+        if (r.area < pageArea * 0.02) return false;
+        const rw = r.x1 - r.x0, rh = r.y1 - r.y0;
+        if (rw < pw * 0.06 || rh < ph * 0.06) return false;          // lasca
+        if (Math.max(rw / rh, rh / rw) > 9) return false;            // tira fina: legenda, crédito
+        return true;
+      });
+
+    // ordem de leitura: agrupa em faixas pela sobreposição vertical, faixas de cima
+    // para baixo; dentro da faixa, direita→esquerda em mangá
+    const rtl = opt.rtl !== false;
+    panels.sort((a, b) => a.y0 - b.y0);
+    const bands = [];
+    for (const p of panels) {
+      const b = bands.find(bd => Math.min(bd.y1, p.y1) - Math.max(bd.y0, p.y0) > (p.y1 - p.y0) * 0.45);
+      if (b) { b.items.push(p); b.y0 = Math.min(b.y0, p.y0); b.y1 = Math.max(b.y1, p.y1); }
+      else bands.push({ y0: p.y0, y1: p.y1, items: [p] });
+    }
+    bands.sort((a, b) => a.y0 - b.y0);
+    const ordered = [];
+    for (const b of bands) {
+      b.items.sort((p, q) => rtl ? q.x0 - p.x0 : p.x0 - q.x0);
+      ordered.push(...b.items);
+    }
+
+    // moldura: quanto da borda do retângulo é tinta. Quadro de história em quadrinhos
+    // costuma ser emoldurado; coluna de texto corrido não é — é assim que a página de
+    // texto em duas colunas deixa de passar por diagramação de quadros.
+    const edgeInk = p => {
+      const t = Math.max(2, Math.round(Math.min(w, h) * 0.004));
+      const rw = p.x1 - p.x0, rh = p.y1 - p.y0;
+      if (rw <= 2 * t || rh <= 2 * t) return 0;
+      const top = ink(p.x0, p.y0, p.x1, p.y0 + t), bot = ink(p.x0, p.y1 - t, p.x1, p.y1);
+      const lef = ink(p.x0, p.y0 + t, p.x0 + t, p.y1 - t), rig = ink(p.x1 - t, p.y0 + t, p.x1, p.y1 - t);
+      const cells = 2 * rw * t + 2 * (rh - 2 * t) * t;
+      return cells ? (top + bot + lef + rig) / cells : 0;
+    };
+    for (const p of ordered) p.edge = edgeInk(p);
+    // basta um quadro claramente emoldurado: numa página com splash sangrado a maioria
+    // não tem moldura, e exigir maioria derrubaria a página inteira
+    const framed = ordered.length ? Math.max(...ordered.map(p => p.edge)) : 0;
+
+    // pontuação: quanto da página os quadros cobrem, e se a contagem faz sentido
+    const covered = ordered.reduce((s, p) => s + p.area, 0) / pageArea;
+    const biggest = ordered.length ? Math.max(...ordered.map(p => p.area)) / pageArea : 0;
+    const reasons = [];
+    if (ordered.length < 2) reasons.push('menos de dois quadros');
+    if (ordered.length > 16) reasons.push('quadros demais');
+    if (covered < 0.5) reasons.push('cobertura baixa');
+    if (ordered.length > 1 && biggest > 0.92) reasons.push('um quadro ocupa a página');
+    if (framed < 0.35) reasons.push('nenhum quadro emoldurado (texto ou anúncio?)');
+    return { panels: ordered, page, thr, covered, framed, ok: reasons.length === 0, reasons };
+  }
+
   // ---------- Panel View (magnificação de região) ----------
   // A área tocada é um <a class="app-amzn-magnify">; o "painel" ampliado é a mesma
   // imagem, maior, ancorada num canto dentro de um <div> escondido. O mecanismo é o
@@ -268,5 +437,6 @@ const Manga = (() => {
   }
 
   return { convert, DEVICES, deviceById,
-           _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml };
+           _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml,
+           _detectPanels: detectPanels, _otsu: otsu };
 })();
