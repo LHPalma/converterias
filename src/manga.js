@@ -60,17 +60,25 @@ const Manga = (() => {
   }
 
   // desenha a imagem dentro da tela do aparelho, centralizada e sem distorcer
-  async function place(src, sx, sy, sw, sh, dev, fmt, quality) {
+  async function place(src, sx, sy, sw, sh, dev, o) {
     const k = Math.min(dev.w / sw, dev.h / sh);
     const w = Math.max(1, Math.round(sw * k)), h = Math.max(1, Math.round(sh * k));
     const cv = canvas(w, h), cx = cv.getContext('2d');
     cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
     cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
     cx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
-    const blob = await toBlob(cv, fmt, quality);
+    // a detecção roda na imagem final: as coordenadas já saem no espaço da página
+    let det = null;
+    if (o.panels === 'auto') {
+      const d = cx.getImageData(0, 0, w, h).data;
+      const g = new Uint8Array(w * h);
+      for (let i = 0, j = 0; i < d.length; i += 4, j++) g[j] = d[i];
+      det = detectPanels(g, w, h, { rtl: o.rtl });
+    }
+    const blob = await toBlob(cv, o.fmt, o.quality);
     free(cv);
     if (!blob) throw new Error('não consegui gerar a imagem da página (memória).');
-    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: fmt, w, h,
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: o.fmt, w, h, det,
              x: Math.round((dev.w - w) / 2), y: Math.round((dev.h - h) / 2) };
   }
 
@@ -100,9 +108,9 @@ const Manga = (() => {
       const half = Math.floor(box.w / 2);
       const esq = [box.x, box.y, half, box.h], dir = [box.x + half, box.y, box.w - half, box.h];
       for (const [sx, sy, sw, sh] of (o.rtl ? [dir, esq] : [esq, dir]))
-        out.push(await place(cv, sx, sy, sw, sh, dev, o.fmt, o.quality));
+        out.push(await place(cv, sx, sy, sw, sh, dev, o));
     } else {
-      out.push(await place(cv, box.x, box.y, box.w, box.h, dev, o.fmt, o.quality));
+      out.push(await place(cv, box.x, box.y, box.w, box.h, dev, o));
     }
     free(cv);
     return out;
@@ -145,7 +153,10 @@ const Manga = (() => {
       S[y1 * iw + x1] - S[y0 * iw + x1] - S[y1 * iw + x0] + S[y0 * iw + x0];
 
     const MINGUT = Math.max(3, Math.round(Math.min(w, h) * (opt.gutter || 0.012)));
-    const TOL = opt.tol || 0.005;
+    // tinta tolerada numa linha de calha: calha cruzada só pelo contorno de um balão
+    // ainda é calha. Valor escolhido por varredura em três corpora — acima disso,
+    // páginas que funcionavam passam a ser recusadas.
+    const TOL = opt.tol || 0.025;
 
     // Separadores dentro de um retângulo, ao longo de um eixo. Há dois tipos: a calha
     // branca (faixa quase sem tinta) e a régua preta (faixa fina quase toda tinta),
@@ -154,8 +165,6 @@ const Manga = (() => {
     const gutters = (r, horiz) => {
       const n = horiz ? r.y1 - r.y0 : r.x1 - r.x0;
       const span = horiz ? r.x1 - r.x0 : r.y1 - r.y0;
-      const lim = Math.max(1, Math.round(span * TOL));
-      const full = span - Math.max(2, Math.round(span * 0.06));
       const runs = [];
       let s = -1, kind = 0;   // 0 nenhum, 1 branco, 2 régua
       const close = i => {
@@ -165,12 +174,19 @@ const Manga = (() => {
         else if (kind === 2 && len >= 2 && len <= DARKMAX) runs.push({ a: s, b: i, dark: true });
         s = -1; kind = 0;
       };
+      // mede só o miolo da faixa: a moldura da página (ou a borda do quadro vizinho)
+      // põe tinta nas duas pontas de toda linha de calha e a desqualificaria
+      const m = Math.min(Math.max(3, Math.round(span * 0.02)), Math.floor(span / 4));
+      const a0 = (horiz ? r.x0 : r.y0) + m, a1 = (horiz ? r.x1 : r.y1) - m;
+      const inner = Math.max(1, a1 - a0);
+      const lim2 = Math.max(1, Math.round(inner * TOL));
+      const full2 = inner - Math.max(2, Math.round(inner * 0.06));
       for (let i = 0; i <= n; i++) {
         let k2 = 0;
         if (i < n) {
           const k = (horiz ? r.y0 : r.x0) + i;
-          const c = horiz ? ink(r.x0, k, r.x1, k + 1) : ink(k, r.y0, k + 1, r.y1);
-          k2 = c <= lim ? 1 : c >= full ? 2 : 0;
+          const c = horiz ? ink(a0, k, a1, k + 1) : ink(k, a0, k + 1, a1);
+          k2 = c <= lim2 ? 1 : c >= full2 ? 2 : 0;
         }
         if (k2 !== kind) { close(i); if (k2) { s = i; kind = k2; } }
       }
@@ -314,6 +330,33 @@ const Manga = (() => {
              y: Math.round((dev.h / 2 - mh / 2) / dev.h * 100) };
   }
 
+  // quadros detectados: cada um vira uma área de toque do seu tamanho e um div com a
+  // página ampliada e deslocada, de modo que aquele quadro preencha a tela
+  function detectedHtml(p, dev, det, file) {
+    const MAXMAG = 4, MINMAG = 1.15;
+    const areas = [], views = [];
+    // descarta antes de numerar: o ordinal precisa ser a sequência de leitura, sem buraco
+    const useful = det.panels.map(q => {
+      const qw = q.x1 - q.x0, qh = q.y1 - q.y0;
+      return { q, qw, qh, s: Math.min(dev.w / qw, dev.h / qh, MAXMAG) };
+    }).filter(u => u.s >= MINMAG);   // quadro que já ocupa a tela não ganha nada em ampliar
+    useful.forEach(({ q, qw, qh, s }, i) => {
+      const mw = Math.round(p.w * s), mh = Math.round(p.h * s);
+      const ox = Math.round(q.x0 * s - (dev.w - qw * s) / 2);
+      const oy = Math.round(q.y0 * s - (dev.h - qh * s) / 2);
+      const id = `PV${i + 1}`;
+      const pc = (v, t) => (v / t * 100).toFixed(2);
+      areas.push(`<div id="${id}" style="position:absolute;left:${pc(p.x + q.x0, dev.w)}%;` +
+                 `top:${pc(p.y + q.y0, dev.h)}%;width:${pc(qw, dev.w)}%;height:${pc(qh, dev.h)}%">` +
+                 `<a style="display:inline-block;width:100%;height:100%;" class="app-amzn-magnify" ` +
+                 `data-app-amzn-magnify='{"targetId":"${id}-P", "ordinal":${i + 1}}'></a></div>`);
+      views.push(`<div class="PV-P" id="${id}-P"><img style="position:absolute;left:${-ox}px;top:${-oy}px" ` +
+                 `src="${file}" width="${mw}" height="${mh}"/></div>`);
+    });
+    if (!areas.length) return null;
+    return `\n<div id="PV">\n${areas.join('\n')}\n</div>\n${views.join('\n')}`;
+  }
+
   function panelHtml(plan, file) {
     const areas = plan.boxes.map((b, i) =>
       `<div id="${b}"><a style="display:inline-block;width:100%;height:100%;" class="app-amzn-magnify" ` +
@@ -337,12 +380,20 @@ const Manga = (() => {
     zip.file('META-INF/container.xml',
       '<?xml version="1.0" encoding="utf-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">' +
       '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
-    let anyPanel = false;
-    const plans = pages.map(p => {
-      const plan = panelPlan(p, dev, meta.panels, meta.rtl);
-      if (plan) anyPanel = true;
-      return plan;
+    // 'auto' usa os quadros detectados; quando a página é recusada, cai nos quadrantes
+    let anyPanel = false, detOk = 0;
+    const html = pages.map((p, i) => {
+      const file = `img/p${i + 1}.${ext(p)}`;
+      if (meta.panels === 'auto' && p.det && p.det.ok) {
+        const s = detectedHtml(p, dev, p.det, file);
+        if (s) { anyPanel = true; detOk++; return s; }
+      }
+      const plan = panelPlan(p, dev, meta.panels === 'auto' ? 4 : meta.panels, meta.rtl);
+      if (!plan) return '';
+      anyPanel = true;
+      return panelHtml(plan, file);
     });
+    meta.detected = detOk;
 
     zip.file('OEBPS/style.css',
       `@page { margin: 0; }\n` +
@@ -360,7 +411,7 @@ const Manga = (() => {
         `<link rel="stylesheet" type="text/css" href="style.css"/></head>\n` +
         `<body><div class="fs"><img src="img/${f}" alt="" class="pg" ` +
         `style="top:${p.y}px; left:${p.x}px; width:${p.w}px; height:${p.h}px"/></div>` +
-        (plans[i] ? panelHtml(plans[i], 'img/' + f) : '') + `</body></html>`);
+        html[i] + `</body></html>`);
     });
     meta.regionMag = anyPanel;
 
@@ -397,7 +448,7 @@ const Manga = (() => {
     const dev = opt.dev || DEVICES[0];
     const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level,
                 fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9,
-                panels: opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
+                panels: opt.panels === 'auto' || opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
 
     say('Lendo o PDF…'); await tick();
     let doc;
@@ -431,8 +482,10 @@ const Manga = (() => {
 
       const a = await Azw3.convert(epub, { say, tick,
         fixed: { w: dev.w, h: dev.h, rtl: o.rtl, bookType: 'comic', regionMag: meta.regionMag } });
-      return { bytes: a.bytes, title: a.title, authors: a.authors, pages: pages.length,
-               device: dev, panels: meta.regionMag ? o.panels : 0 };
+      const r = { bytes: a.bytes, title: a.title, authors: a.authors, pages: pages.length,
+                  device: dev, panels: meta.regionMag ? o.panels : 0, detected: meta.detected || 0 };
+      if (opt._epub) r.epub = epub;   // para conferir o layout fixo num navegador
+      return r;
     } finally { doc.destroy(); }
   }
 
