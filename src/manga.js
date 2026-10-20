@@ -73,7 +73,7 @@ const Manga = (() => {
       const d = cx.getImageData(0, 0, w, h).data;
       const g = new Uint8Array(w * h);
       for (let i = 0, j = 0; i < d.length; i += 4, j++) g[j] = d[i];
-      det = detectPanels(g, w, h, { rtl: o.rtl });
+      det = detectBest(g, w, h, { rtl: o.rtl });
     }
     const blob = await toBlob(cv, o.fmt, o.quality);
     free(cv);
@@ -316,6 +316,19 @@ const Manga = (() => {
     return { panels: ordered, page, thr, covered, framed, ok: reasons.length === 0, reasons };
   }
 
+  // Páginas densas (balão e arte cruzando a calha) não passam no corte estrito. Tenta
+  // de novo, mais tolerante, só quando a estrita falha: a página que já passou fica com
+  // o resultado melhor, e a que nunca passa continua sem painel.
+  const PASSES = [{ tol: 0.025 }, { tol: 0.05 }, { tol: 0.09 }];
+  function detectBest(gray, w, h, opt) {
+    let last = null;
+    for (const p of PASSES) {
+      last = detectPanels(gray, w, h, Object.assign({}, opt, p));
+      if (last.ok) return last;
+    }
+    return last;
+  }
+
   // ---------- Panel View (magnificação de região) ----------
   // A área tocada é um <a class="app-amzn-magnify">; o "painel" ampliado é a mesma
   // imagem, maior, ancorada num canto dentro de um <div> escondido. O mecanismo é o
@@ -536,5 +549,5 @@ const Manga = (() => {
 
   return { convert, DEVICES, deviceById,
            _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml,
-           _detectPanels: detectPanels, _otsu: otsu };
+           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu };
 })();
