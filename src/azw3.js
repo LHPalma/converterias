@@ -176,6 +176,27 @@ const Azw3 = (() => {
     return { comps, progressive, orient, w, h };
   }
   const toBlob = (cv, type, q) => new Promise(r => cv.toBlob(r, type, q));
+  // decodifica com <img>, caminho para SVG (o createImageBitmap do Chrome não aceita)
+  function decodeViaImg(raw, type, svg) {
+    return new Promise(res => {
+      const url = URL.createObjectURL(new Blob([raw], { type: type || 'image/svg+xml' }));
+      const im = new Image();
+      im.onload = () => {
+        let w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+        if (svg && (!w || !h)) {
+          const vb = /viewBox\s*=\s*["']([-\d.eE\s,]+)["']/.exec(dec.decode(raw.subarray(0, 4096)));
+          const n = vb ? vb[1].trim().split(/[\s,]+/).map(Number) : null;
+          if (n && n.length === 4 && n[2] > 0 && n[3] > 0) { w = Math.round(n[2]); h = Math.round(n[3]); }
+          else { w = 600; h = 800; }
+          im.width = w; im.height = h;
+        }
+        if (!w || !h) { URL.revokeObjectURL(url); return res(null); }
+        res({ src: im, width: w, height: h, close: () => URL.revokeObjectURL(url) });
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); res(null); };
+      im.src = url;
+    });
+  }
   // devolve { bytes, mime, w, h } em formato que o Kindle lê (JPEG, PNG, GIF)
   async function prepareImage(raw, hint) {
     const kind = sniff(raw);
@@ -186,13 +207,17 @@ const Azw3 = (() => {
     if (kind && !needs && Math.max(w0, h0) <= 4096 && w0 > 0 && h0 > 0 && raw.length <= 8 * 1048576) return { bytes: raw, mime: 'image/' + kind, w: w0, h: h0 };
     let svg = false;
     if (!kind && /<svg[\s>]/i.test(dec.decode(raw.subarray(0, 2048)))) svg = true;
+    const type = svg ? 'image/svg+xml' : kind ? 'image/' + kind : (hint || '');
     let bmp;
-    try { bmp = await createImageBitmap(new Blob([raw], { type: svg ? 'image/svg+xml' : kind ? 'image/' + kind : (hint || '') }), { imageOrientation: 'from-image' }); }
-    catch (e) { return null; }
+    try { const ib = await createImageBitmap(new Blob([raw], { type }), { imageOrientation: 'from-image' });
+          bmp = { src: ib, width: ib.width, height: ib.height, close: () => ib.close() }; }
+    catch (e) { bmp = null; }
+    if (!bmp) bmp = await decodeViaImg(raw, type, svg);   // SVG e afins que o createImageBitmap recusa
+    if (!bmp) return null;
     const MAX = 3200, k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-    const cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0, w, h); bmp.close();
+    const cx = cv.getContext('2d'); cx.drawImage(bmp.src, 0, 0, w, h); if (bmp.close) bmp.close();
     let alpha = false;
     if (kind !== 'jpeg') { const d = cx.getImageData(0, 0, w, h).data; for (let i = 3; i < d.length; i += 4) if (d[i] < 255) { alpha = true; break; } }
     if (alpha || kind === 'png' || kind === 'gif') return { bytes: new Uint8Array(await (await toBlob(cv, 'image/png')).arrayBuffer()), mime: 'image/png', w, h };
@@ -797,5 +822,5 @@ const Azw3 = (() => {
     return { bytes, title: book.title, authors: book.authors, lang, textLength: fullText.length, records: n, images: resources.length, sections: files.length };
   }
 
-  return { convert, palmCompress, vwi, b32, _readEpub: readEpub };
+  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage };
 })();

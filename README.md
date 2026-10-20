@@ -15,7 +15,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Imagens → PDF** (uma imagem por página) | disponível |
 | **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
-| **Para Kindle (AZW3)** (de EPUB ou de PDF, para copiar por cabo USB) | disponível |
+| **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
 
 ## EPUB → PDF
 
@@ -112,18 +112,30 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 - As páginas são copiadas como estão (texto, imagens e links ficam iguais); a rotação soma-se à que a página já tinha. Os marcadores das páginas que ficam são mantidos, e os das páginas removidas somem.
 - Páginas duplicadas repetem seus recursos (fontes e imagens) no arquivo, então o PDF cresce um pouco. PDFs com senha não são suportados.
 
-## Para Kindle (AZW3)
+## Para Kindle (AZW3 ou KFX)
 
-O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8). Esta aba gera o AZW3 direto no navegador, sem Calibre.
+O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8) e KFX. Esta aba gera os dois direto no navegador, sem Calibre.
 
-1. Toque em **Para Kindle (AZW3)** (ou abra com `#kindle`) e escolha `.epub` e/ou `.pdf`. PDF vira EPUB primeiro (com as opções de **PDF → EPUB**) e depois AZW3.
+1. Toque em **Para Kindle** (ou abra com `#kindle`), escolha o **formato** e os `.epub` e/ou `.pdf`. PDF vira EPUB primeiro (com as opções de **PDF → EPUB**) e depois AZW3/KFX.
 2. **Converter** e baixe os arquivos (ou o ZIP).
-3. Ligue o Kindle ao computador e copie os `.azw3` para a pasta `documents`. (Kindles mais novos usam MTP e aparecem como dispositivo, não como pen drive.)
+3. Ligue o Kindle ao computador e copie os `.azw3`/`.kfx` para a pasta `documents`. (Kindles mais novos usam MTP e aparecem como dispositivo, não como pen drive.)
+
+**Qual escolher:** AZW3 abre em qualquer Kindle e preserva mais do EPUB (fontes embutidas, estilos, notas em pop-up). KFX é o formato atual da Amazon, com tipografia melhor (hifenização e justificação da Amazon), e funciona nos aparelhos de 2015 para cá; aqui ele sai com o texto estruturado e as imagens, sem o CSS do EPUB. Na dúvida, AZW3.
+
+### AZW3
 
 - **O que entra:** texto com parágrafos, títulos, listas, tabelas, notas de rodapé (pop-up), links internos, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG; JPEG progressivo ou CMYK é refeito), capa com miniatura, sumário em árvore (com os mesmos níveis do EPUB) e fontes TTF/OTF embutidas (inclusive as ofuscadas).
 - **O que sai:** `@media`, `@import`, seletores com namespace e fontes WOFF são descartados (o Kindle não os usa); áudio, vídeo e MathML também.
 - **Formato:** escrito a partir do formato do arquivo (PalmDB + MOBI 8, com os índices de esqueleto/fragmento/sumário e os bytes finais dos registros). A estrutura foi conferida com o Calibre e o KindleUnpack em mais de 300 arquivos (livros reais, EPUBs aleatórios e casos extremos, até um livro de 47 MB de texto): leitura de volta sem perder palavras nem imagens, fragmentos de texto bem formados e sem avisos do Calibre sobre o índice.
 - **Limites:** não foi testado em um Kindle de verdade. Se um livro não abrir ou ficar sem capa na biblioteca, reinicie o Kindle e me diga o modelo. O AZW3 não serve para o Send to Kindle (e-mail): para isso envie o EPUB.
+
+### KFX
+
+- **O que entra:** parágrafos, títulos (h1–h6), listas, tabelas, `<pre>`, citações, quebras de linha, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG), capa para a biblioteca, links internos e sumário em árvore.
+- **O que sai:** o CSS do EPUB e as fontes embutidas (o KFX usa os estilos e as fontes do próprio Kindle); áudio, vídeo e MathML também.
+- **Formato:** escrito do zero — contêiner `CONT`, fragmentos em [Amazon Ion](https://amzn.github.io/ion-docs/) binário com a tabela de símbolos `YJ_symbols`, mapa de posições, índice de seções e metadados do livro. Nada de SQLite/KDF no meio: sai o `.kfx` monolítico, como o que a Amazon entrega ao aparelho.
+- **Como foi conferido:** 245 livros (220 EPUBs reais mais casos extremos: livro de 50 MB, parágrafo de 30 mil palavras, 400 capítulos, japonês com emoji, HTML malformado, EPUB 2, EPUB ofuscado) convertidos e lidos de volta com o `kfxlib` do plugin **KFX Input** do Calibre — leitura sem erros nem avisos de estrutura e **sem perder nem inventar uma palavra** em nenhum deles.
+- **Limites:** não foi testado em um Kindle de verdade, e o KFX é formato fechado da Amazon: se um livro não abrir, use AZW3. O KFX também não serve para o Send to Kindle (e-mail).
 
 ## Desenvolvimento
 
@@ -133,6 +145,7 @@ python3 build.py   # gera index.html a partir de src/template.html + vendor/
 
 - `src/template.html`: interface e o código dos conversores.
 - `src/azw3.js`: gravador de AZW3 (embutido no `index.html` pelo `build.py`).
+- `src/kfx.js`: gravador de KFX, com o codificador de Amazon Ion binário (idem).
 - `vendor/`: bibliotecas e fontes embutidas (ver [THIRD_PARTY.md](THIRD_PARTY.md)).
 - `sw.js` e `manifest.webmanifest`: PWA (cache offline).
 
