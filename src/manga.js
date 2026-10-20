@@ -540,13 +540,23 @@ const Manga = (() => {
       const uuid = (() => { const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = b[6] & 15 | 64; b[8] = b[8] & 63 | 128;
         const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
         return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`; })();
+      // PDF de texto corrido cai aqui por engano com facilidade: as páginas não têm
+      // quadro emoldurado nenhum. Vale avisar, porque a aba Para Kindle faz muito
+      // melhor com texto do que virar 300 fotos de página.
+      // A mediana da moldurice separa com folga: num livro de prosa fica perto de 0,2;
+      // em mangá, entre 0,58 e 0,85, mesmo num cheio de página inteira como o Vagabond.
+      const judged = pages.filter(p => p.det).map(p => p.det.framed).sort((a, b) => a - b);
+      const median = judged.length ? judged[judged.length >> 1] : 1;
+      const looksLikeText = judged.length >= 5 && median < 0.3;
+
       const meta = { title, author, lang: opt.lang || 'pt', rtl: o.rtl, uuid, panels: o.panels };
       const epub = await buildEpub(pages, dev, meta);
 
       const a = await Azw3.convert(epub, { say, tick,
         fixed: { w: dev.w, h: dev.h, rtl: o.rtl, bookType: 'comic', regionMag: meta.regionMag } });
       const r = { bytes: a.bytes, title: a.title, authors: a.authors, pages: pages.length,
-                  device: dev, panels: meta.regionMag ? o.panels : 0, detected: meta.detected || 0 };
+                  device: dev, panels: meta.regionMag ? o.panels : 0, detected: meta.detected || 0,
+                  looksLikeText };
       if (opt._epub) r.epub = epub;   // para conferir o layout fixo num navegador
       return r;
     } finally { doc.destroy(); }

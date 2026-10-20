@@ -2524,7 +2524,8 @@ ${spine.join('\n')}
         const url = URL.createObjectURL(new Blob([r.bytes], { type: M.mime }));
         results.push({ name, url, bytes: r.bytes, mime: M.mime });
         const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}`
-          : `${r.pages} páginas${r.detected ? ` · quadrinhos detectados em ${r.detected}` : ''}`;
+          : `${r.pages} páginas${r.detected ? ` · quadrinhos detectados em ${r.detected}` : ''}` +
+            (r.looksLikeText ? ' · parece texto corrido, não quadrinho: a aba Para Kindle fica bem melhor' : '');
         setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}`, 'ok', { name, url });
       } catch (e) {
         console.error(e);
