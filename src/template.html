@@ -113,6 +113,12 @@
       <option value="rtl">Da direita para a esquerda (mangá japonês)</option>
       <option value="ltr">Da esquerda para a direita</option>
     </select>
+    <label for="mPanels">Painéis (duplo toque amplia um pedaço da página)</label>
+    <select id="mPanels">
+      <option value="4">4 painéis por página (ampliação maior)</option>
+      <option value="2">2 painéis por página (metades de cima e de baixo)</option>
+      <option value="0">Sem painéis (só a página inteira)</option>
+    </select>
     <label class="chk"><input id="mSplit" type="checkbox" checked> Partir páginas duplas em duas</label>
     <label class="chk"><input id="mCrop" type="checkbox" checked> Aparar as margens brancas</label>
     <label class="chk"><input id="mLevel" type="checkbox"> Reforçar o contraste</label>
@@ -2472,6 +2478,7 @@ ${spine.join('\n')}
       say, tick,
       dev: Manga.deviceById($('mDev').value),
       rtl: $('mDir').value === 'rtl',
+      panels: +$('mPanels').value,
       split: $('mSplit').checked,
       crop: $('mCrop').checked,
       level: $('mLevel').checked,

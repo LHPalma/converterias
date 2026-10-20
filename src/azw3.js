@@ -779,7 +779,7 @@ const Azw3 = (() => {
       eStr(126, `${fixed.w}x${fixed.h}`);              // original-resolution
       eStr(127, 'true');                               // zero-gutter
       eStr(128, 'true');                               // zero-margin
-      eStr(132, 'false');                              // RegionMagnification: sem painéis marcados à mão
+      eStr(132, fixed.regionMag ? 'true' : 'false');   // RegionMagnification: só com marcação de painel na página
       eStr(527, fixed.rtl ? 'rtl' : 'ltr');            // page-progression-direction
     }
     eStr(525, fixed ? (fixed.rtl ? 'horizontal-rl' : 'horizontal-lr') : (book.writing || (book.rtl ? 'horizontal-rl' : 'horizontal-lr')));

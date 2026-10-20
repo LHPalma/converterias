@@ -108,6 +108,57 @@ const Manga = (() => {
     return out;
   }
 
+  // ---------- Panel View (magnificação de região) ----------
+  // A área tocada é um <a class="app-amzn-magnify">; o "painel" ampliado é a mesma
+  // imagem, maior, ancorada num canto dentro de um <div> escondido. O mecanismo é o
+  // que o kindlegen reconhece — com esta marcação ele mantém RegionMagnification=true.
+  const BOX_POS = {
+    'PV-TL': 'left:0;top:0;', 'PV-TR': 'right:0;top:0;',
+    'PV-BL': 'left:0;bottom:0;', 'PV-BR': 'right:0;bottom:0;',
+    'PV-T': 'top:0;', 'PV-B': 'bottom:0;', 'PV-L': 'left:0;', 'PV-R': 'right:0;',
+  };
+  const PV_CSS =
+    '#PV { position: absolute; width: 100%; height: 100%; top: 0; left: 0; }\n' +
+    '#PV-T { top: 0; width: 100%; height: 50%; }\n' +
+    '#PV-B { bottom: 0; width: 100%; height: 50%; }\n' +
+    '#PV-L { left: 0; width: 49.5%; height: 100%; float: left; }\n' +
+    '#PV-R { right: 0; width: 49.5%; height: 100%; float: right; }\n' +
+    '#PV-TL { top: 0; left: 0; width: 49.5%; height: 50%; float: left; }\n' +
+    '#PV-TR { top: 0; right: 0; width: 49.5%; height: 50%; float: right; }\n' +
+    '#PV-BL { bottom: 0; left: 0; width: 49.5%; height: 50%; float: left; }\n' +
+    '#PV-BR { bottom: 0; right: 0; width: 49.5%; height: 50%; float: right; }\n' +
+    '.PV-P { width: 100%; height: 100%; top: 0; position: absolute; display: none; }\n';
+
+  // quantas regiões a página precisa, e de que tamanho fica a imagem ampliada
+  function panelPlan(p, dev, panels, rtl) {
+    if (!panels) return null;
+    const mw = panels === 2 ? dev.w : Math.round(p.w * 1.6);
+    const mh = panels === 2 ? Math.round(p.h * dev.w / p.w) : Math.round(p.h * 1.6);
+    const hSplit = mw - dev.w >= dev.w * 0.01, vSplit = mh - dev.h >= dev.h * 0.01;
+    let boxes, order;
+    if (hSplit && vSplit) { boxes = ['PV-TL', 'PV-TR', 'PV-BL', 'PV-BR']; order = rtl ? [2, 1, 4, 3] : [1, 2, 3, 4]; }
+    else if (vSplit) { boxes = ['PV-T', 'PV-B']; order = [1, 2]; }
+    else if (hSplit) { boxes = ['PV-L', 'PV-R']; order = rtl ? [2, 1] : [1, 2]; }
+    else return null;   // a página já cabe na tela: não há o que ampliar
+    return { mw, mh, boxes, order,
+             x: Math.round((dev.w / 2 - mw / 2) / dev.w * 100),
+             y: Math.round((dev.h / 2 - mh / 2) / dev.h * 100) };
+  }
+
+  function panelHtml(plan, file) {
+    const areas = plan.boxes.map((b, i) =>
+      `<div id="${b}"><a style="display:inline-block;width:100%;height:100%;" class="app-amzn-magnify" ` +
+      `data-app-amzn-magnify='{"targetId":"${b}-P", "ordinal":${plan.order[i]}}'></a></div>`).join('\n');
+    const views = plan.boxes.map(b => {
+      let pos = BOX_POS[b];
+      if (b === 'PV-T' || b === 'PV-B') pos += `left:${plan.x}%;`;
+      if (b === 'PV-L' || b === 'PV-R') pos += `top:${plan.y}%;`;
+      return `<div class="PV-P" id="${b}-P"><img style="position:absolute;${pos}" src="${file}" ` +
+             `width="${plan.mw}" height="${plan.mh}"/></div>`;
+    }).join('\n');
+    return `\n<div id="PV">\n${areas}\n</div>\n${views}`;
+  }
+
   // EPUB de layout fixo: uma página por XHTML, a imagem posicionada em pixels
   function buildEpub(pages, dev, meta) {
     const zip = new JSZip();
@@ -117,11 +168,18 @@ const Manga = (() => {
     zip.file('META-INF/container.xml',
       '<?xml version="1.0" encoding="utf-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">' +
       '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+    let anyPanel = false;
+    const plans = pages.map(p => {
+      const plan = panelPlan(p, dev, meta.panels, meta.rtl);
+      if (plan) anyPanel = true;
+      return plan;
+    });
+
     zip.file('OEBPS/style.css',
       `@page { margin: 0; }\n` +
       `html, body { margin: 0; padding: 0; width: ${dev.w}px; height: ${dev.h}px; }\n` +
       `div.fs { margin: 0; padding: 0; width: ${dev.w}px; height: ${dev.h}px; position: relative; background: #ffffff; }\n` +
-      `img.pg { position: absolute; }\n`);
+      `img.pg { position: absolute; }\n` + (anyPanel ? PV_CSS : ''));
 
     pages.forEach((p, i) => {
       const n = i + 1, f = `p${n}.${ext(p)}`;
@@ -132,8 +190,10 @@ const Manga = (() => {
         `<meta name="viewport" content="width=${dev.w}, height=${dev.h}"/>\n` +
         `<link rel="stylesheet" type="text/css" href="style.css"/></head>\n` +
         `<body><div class="fs"><img src="img/${f}" alt="" class="pg" ` +
-        `style="top:${p.y}px; left:${p.x}px; width:${p.w}px; height:${p.h}px"/></div></body></html>`);
+        `style="top:${p.y}px; left:${p.x}px; width:${p.w}px; height:${p.h}px"/></div>` +
+        (plans[i] ? panelHtml(plans[i], 'img/' + f) : '') + `</body></html>`);
     });
+    meta.regionMag = anyPanel;
 
     const mani = pages.map((p, i) => `<item id="x${i + 1}" href="p${i + 1}.xhtml" media-type="application/xhtml+xml"/>` +
       `<item id="i${i + 1}" href="img/p${i + 1}.${ext(p)}" media-type="${p.mime}"${i ? '' : ' properties="cover-image"'}/>`).join('');
@@ -149,6 +209,7 @@ const Manga = (() => {
       `<meta name="fixed-layout" content="true"/><meta name="book-type" content="comic"/>` +
       `<meta name="orientation-lock" content="portrait"/><meta name="original-resolution" content="${dev.w}x${dev.h}"/>` +
       `<meta name="primary-writing-mode" content="horizontal-${meta.rtl ? 'rl' : 'lr'}"/>` +
+      `<meta name="RegionMagnification" content="${meta.regionMag ? 'true' : 'false'}"/>` +
       `<meta name="zero-gutter" content="true"/><meta name="zero-margin" content="true"/>` +
       `</metadata>\n<manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>` +
       `<item id="css" href="style.css" media-type="text/css"/>${mani}</manifest>\n` +
@@ -166,7 +227,8 @@ const Manga = (() => {
     const say = opt.say || (() => {}), tick = opt.tick || (() => Promise.resolve());
     const dev = opt.dev || DEVICES[0];
     const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level,
-                fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9 };
+                fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9,
+                panels: opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
 
     say('Lendo o PDF…'); await tick();
     let doc;
@@ -195,12 +257,16 @@ const Manga = (() => {
       const uuid = (() => { const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = b[6] & 15 | 64; b[8] = b[8] & 63 | 128;
         const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
         return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`; })();
-      const epub = await buildEpub(pages, dev, { title, author, lang: opt.lang || 'pt', rtl: o.rtl, uuid });
+      const meta = { title, author, lang: opt.lang || 'pt', rtl: o.rtl, uuid, panels: o.panels };
+      const epub = await buildEpub(pages, dev, meta);
 
-      const a = await Azw3.convert(epub, { say, tick, fixed: { w: dev.w, h: dev.h, rtl: o.rtl, bookType: 'comic' } });
-      return { bytes: a.bytes, title: a.title, authors: a.authors, pages: pages.length, device: dev };
+      const a = await Azw3.convert(epub, { say, tick,
+        fixed: { w: dev.w, h: dev.h, rtl: o.rtl, bookType: 'comic', regionMag: meta.regionMag } });
+      return { bytes: a.bytes, title: a.title, authors: a.authors, pages: pages.length,
+               device: dev, panels: meta.regionMag ? o.panels : 0 };
     } finally { doc.destroy(); }
   }
 
-  return { convert, DEVICES, deviceById, _contentBox: contentBox, _autoLevel: autoLevel };
+  return { convert, DEVICES, deviceById,
+           _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml };
 })();
