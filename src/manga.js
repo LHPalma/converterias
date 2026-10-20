@@ -160,6 +160,7 @@ const Manga = (() => {
     // quanta tinta uma fileira precisa para valer como moldura, e em que janela procurar
     // (digitalização torta espalha a linha da moldura por várias fileiras)
     const RULE = opt.rule || 0.15, RULEWIN = opt.ruleWin || 2;
+    const DARKFRAC = opt.darkFrac || 0.85;  // acima disso a faixa é arte escura, não régua
 
     // Separadores dentro de um retângulo, ao longo de um eixo. Há dois tipos: a calha
     // branca (faixa quase sem tinta) e a régua preta (faixa fina quase toda tinta),
@@ -203,9 +204,18 @@ const Manga = (() => {
           if (cnt[k] >= inner * RULE) return true;
         return false;
       };
+      // Régua preta é exceção numa faixa: entre dois quadros encostados, as linhas
+      // vizinhas têm bem menos tinta que ela. Se quase toda a faixa está tintada,
+      // o que há ali é arte escura (uma lousa, um céu noturno) e as linhas cheias
+      // dentro dela não são divisão nenhuma — era isto que partia o quadro por dentro.
+      let heavy = 0;
+      for (let i = 0; i < n; i++) if (cnt[i] >= inner * 0.5) heavy++;
+      const escura = heavy > n * DARKFRAC;
       return runs
         .filter(g => g.a > 0 && g.b < n)   // encostado na borda é margem, não divisão
-        .filter(g => g.dark || (nearRule(g.a - 1) && nearRule(g.b)))
+        .filter(g => g.dark
+          ? !escura
+          : (nearRule(g.a - 1) && nearRule(g.b)))
         .sort((p, q) => p.a - q.a);
     };
 
