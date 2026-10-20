@@ -16,6 +16,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
+| **Mangá** (PDF escaneado → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
 
 ## EPUB → PDF
 
@@ -137,6 +138,21 @@ O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8) e KFX. Esta aba
 - **Como foi conferido:** 246 EPUBs convertidos e lidos de volta com o `kfxlib` do plugin **KFX Input** do Calibre, sem erro nem aviso de estrutura e **sem perder nem inventar uma palavra** em nenhum deles — 220 gerados por um fuzzer (palavras aleatórias em sete alfabetos, estrutura, sumário e imagens aleatórios), 24 casos extremos também gerados (livro de 50 MB com 300 capítulos, parágrafo de 30 mil palavras, 400 capítulos, japonês com emoji, HTML malformado, EPUB 2, EPUB ofuscado, imagens em PNG/JPEG/GIF/WebP/BMP/SVG) e 2 livros reais. A cobertura é ampla em estrutura e rasa em livros de verdade.
 - **Limites:** não foi testado em um Kindle de verdade, e o KFX é formato fechado da Amazon: se um livro não abrir, use AZW3. O KFX também não serve para o Send to Kindle (e-mail).
 
+## Mangá
+
+Mangá e HQ no Kindle não são texto que reflui: são **uma imagem por página**, num AZW3 de **layout fixo** — é assim que a Amazon entrega quadrinhos. Esta aba faz isso a partir de um PDF escaneado.
+
+1. Toque em **Mangá** (ou abra com `#manga`) e escolha um ou mais `.pdf`.
+2. Escolha o **aparelho** (define o tamanho exato das páginas), o **sentido de leitura** e o que fazer com as páginas duplas.
+3. **Converter** e copie os `.azw3` para a pasta `documents` do Kindle.
+
+- **O que ele faz com cada página:** rasteriza, converte para tons de cinza (o e-ink não mostra cor), apara a moldura branca da digitalização, redimensiona para a tela do aparelho sem distorcer e centraliza o que sobra. Páginas duplas (em paisagem) podem ser partidas em duas, já na ordem de leitura — na leitura da direita para a esquerda, a metade direita vem primeiro.
+- **Sentido de leitura:** `horizontal-rl` para mangá japonês, `horizontal-lr` para o resto. Isso também liga os **Virtual Panels** do Kindle: duplo toque amplia um quadrante da página, na ordem certa, sem precisar marcar painel por painel.
+- **Aparelhos** (resoluções dos perfis do [Kindle Comic Converter](https://github.com/ciromattia/kcc)): Paperwhite 3/4, Voyage, Oasis 1 e Kindle 11 (1072 × 1448); Paperwhite 5 e Signature (1236 × 1648); Oasis 2/3 e Libra (1264 × 1680); Paperwhite 12ª geração e Colorsoft (1272 × 1696); Scribe (1860 × 2480); Paperwhite 1/2 (758 × 1024); Kindle básico antigo (600 × 800).
+- **Formato:** AZW3 (KF8) de layout fixo. Os metadados que fazem o Kindle tratar o arquivo como quadrinho vão nos registros EXTH: `122 fixed-layout`, `123 book-type=comic`, `124 orientation-lock`, `126 original-resolution`, `127 zero-gutter`, `128 zero-margin`, `132 RegionMagnification`, `525 primary-writing-mode` e `527 page-progression-direction`. Cada página é um XHTML com `<meta name="viewport">` e a imagem posicionada em pixels.
+- **Como foi conferido:** o mesmo EPUB de layout fixo foi passado pelo **kindlegen da Amazon** e pelo nosso gravador, e os nove registros EXTH de layout fixo saem **idênticos**; o HTML e o CSS gerados também batem. A saída passa limpa pelo `calibre-debug --inspect-mobi`, pelo KindleUnpack e pelos verificadores de índice e de TBS. Testado com PDF de 63 páginas na resolução do Scribe (31 MB, 23 s, 141 MB de memória), com e sem partir páginas duplas, em JPEG e em PNG, e com página quase vazia.
+- **Limites:** não foi testado num Kindle de verdade. Serve para PDF de página escaneada; PDF de texto corrido fica muito melhor na aba **Para Kindle**. Não detecta painéis um por um (não há Panel View marcado à mão, só os Virtual Panels), não faz a quantização para os 16 tons do e-ink e não lê CBZ ainda.
+
 ## Desenvolvimento
 
 ```bash
@@ -146,6 +162,7 @@ python3 build.py   # gera index.html a partir de src/template.html + vendor/
 - `src/template.html`: interface e o código dos conversores.
 - `src/azw3.js`: gravador de AZW3 (embutido no `index.html` pelo `build.py`).
 - `src/kfx.js`: gravador de KFX, com o codificador de Amazon Ion binário (idem).
+- `src/manga.js`: PDF → páginas de mangá (cinza, aparo, partição de páginas duplas) e o EPUB de layout fixo que vira AZW3 (idem).
 - `vendor/`: bibliotecas e fontes embutidas (ver [THIRD_PARTY.md](THIRD_PARTY.md)).
 - `sw.js` e `manifest.webmanifest`: PWA (cache offline).
 

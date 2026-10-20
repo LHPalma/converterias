@@ -410,7 +410,10 @@ const Azw3 = (() => {
   }
 
   // ---------- conversão ----------
+  // layout fixo (mangá e HQ): uma imagem por página, sem refluxo
+  // os valores de EXTH foram conferidos contra o que o kindlegen da Amazon emite
   async function convert(epubBytes, opt = {}) {
+    const fixed = opt.fixed || null;
     const say = opt.say || (() => {}), tick = opt.tick || (() => Promise.resolve());
     say('Lendo o EPUB…'); await tick();
     const ep = await readEpub(epubBytes);
@@ -591,7 +594,8 @@ const Azw3 = (() => {
     const files = [];
     for (const dc of docs) {
       dc.tree = prune(dc.tree);
-      const head = `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${attr(dc.htmlLang)}" xml:lang="${attr(dc.htmlLang)}"${dc.htmlAttrs}>\n  <head>\n    <title>${xml(clean(dc.title))}</title>\n    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n${dc.sheets.map(s => `<link rel="stylesheet" type="text/css" href="kindle:flow:${b32(cssFlow.get(s.path), 4)}?mime=text/css"/>\n`).join('')}  </head>\n  `;
+      const vp = fixed ? `    <meta name="viewport" content="width=${fixed.w}, height=${fixed.h}"/>\n` : '';
+      const head = `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${attr(dc.htmlLang)}" xml:lang="${attr(dc.htmlLang)}"${dc.htmlAttrs}>\n  <head>\n    <title>${xml(clean(dc.title))}</title>\n    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n${vp}${dc.sheets.map(s => `<link rel="stylesheet" type="text/css" href="kindle:flow:${b32(cssFlow.get(s.path), 4)}?mime=text/css"/>\n`).join('')}  </head>\n  `;
       let sk = head + `<body${dc.bodyAttrs.length ? ' ' + dc.bodyAttrs.join(' ') : ''} aid="${dc.bodyAid}">\n`.replace(/>\n$/, '>');
       let skB = ulen(sk);
       const chunks = [], shells = [];
@@ -768,7 +772,17 @@ const Azw3 = (() => {
     eStr(501, 'EBOK');
     eStr(503, book.title);
     eStr(524, lang);
-    eStr(525, book.writing || (book.rtl ? 'horizontal-rl' : 'horizontal-lr'));
+    if (fixed) {
+      eStr(122, 'true');                               // fixed-layout
+      eStr(123, fixed.bookType || 'comic');            // book-type
+      eStr(124, fixed.orientation || 'portrait');      // orientation-lock
+      eStr(126, `${fixed.w}x${fixed.h}`);              // original-resolution
+      eStr(127, 'true');                               // zero-gutter
+      eStr(128, 'true');                               // zero-margin
+      eStr(132, 'false');                              // RegionMagnification: sem painéis marcados à mão
+      eStr(527, fixed.rtl ? 'rtl' : 'ltr');            // page-progression-direction
+    }
+    eStr(525, fixed ? (fixed.rtl ? 'horizontal-rl' : 'horizontal-lr') : (book.writing || (book.rtl ? 'horizontal-rl' : 'horizontal-lr')));
     eStr(528, 'true');
     eStr(535, '0730-890adc2');
     const exBody = cat(exth.map(([t, d]) => cat([u32(t), u32(8 + d.length), d])));

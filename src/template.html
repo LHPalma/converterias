@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Converterias</title>
-<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB, juntar PDFs ou EPUBs, imagens para PDF e vice-versa, organizar páginas de PDF e gerar AZW3 ou KFX para Kindle).">
+<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB, juntar PDFs ou EPUBs, imagens para PDF e vice-versa, organizar páginas de PDF, gerar AZW3 ou KFX para Kindle e montar mangá de PDF escaneado).">
 <meta name="theme-color" content="#2f6fed">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -72,6 +72,7 @@
     <button type="button" data-mode="p2i">PDF → Imagens</button>
     <button type="button" data-mode="org">Organizar PDF</button>
     <button type="button" data-mode="kindle">Para Kindle</button>
+    <button type="button" data-mode="manga">Mangá</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -102,6 +103,20 @@
       <option value="azw3">AZW3 (KF8) — abre em qualquer Kindle</option>
       <option value="kfx">KFX — formato novo da Amazon</option>
     </select>
+  </div>
+
+  <div class="card" id="optManga" hidden>
+    <label for="mDev">Aparelho (define o tamanho das páginas)</label>
+    <select id="mDev"></select>
+    <label for="mDir">Sentido de leitura</label>
+    <select id="mDir">
+      <option value="rtl">Da direita para a esquerda (mangá japonês)</option>
+      <option value="ltr">Da esquerda para a direita</option>
+    </select>
+    <label class="chk"><input id="mSplit" type="checkbox" checked> Partir páginas duplas em duas</label>
+    <label class="chk"><input id="mCrop" type="checkbox" checked> Aparar as margens brancas</label>
+    <label class="chk"><input id="mLevel" type="checkbox"> Reforçar o contraste</label>
+    <label class="chk"><input id="mPng" type="checkbox"> PNG em vez de JPEG (melhor, bem maior)</label>
   </div>
 
   <div class="card" id="optP2E" hidden>
@@ -177,6 +192,7 @@
 <script type="text/plain" id="pdfWorker">/*PDFJSWORKER*/</script>
 <script>/*AZW3*/</script>
 <script>/*KFX*/</script>
+<script>/*MANGA*/</script>
 <script>const FONT_DATA = /*FONTS*/{};</script>
 <script>
 (() => {
@@ -202,6 +218,8 @@
               get note() { return kFmt() === 'kfx'
                 ? 'Gera KFX, o formato atual da Amazon: copie o arquivo para a pasta "documents" do Kindle (por cabo USB). Dá tipografia melhor e funciona nos Kindles de 2015 para cá; em aparelhos antigos, prefira o AZW3. Sai só o texto estruturado e as imagens — sem CSS do EPUB e sem fontes embutidas. EPUB vira KFX direto; PDF vira EPUB primeiro (com as opções acima) e depois KFX. O KFX não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Nome do arquivo: Título em Title Case - Subtítulo (Autor).'
                 : 'Gera AZW3 (KF8), o formato que o Kindle abre por cabo USB: copie o arquivo para a pasta "documents" do Kindle. EPUB vira AZW3 direto; PDF vira EPUB primeiro (com as opções acima) e depois AZW3. O AZW3 não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Fontes embutidas no EPUB são descartadas (o Kindle usa as dele). Nome do arquivo: Título em Title Case - Subtítulo (Autor).'; } },
+    manga: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'mangás',
+             note: 'Transforma cada página do PDF numa página de imagem e gera um AZW3 de layout fixo — o formato que a Amazon usa para mangá e HQ: copie o arquivo para a pasta "documents" do Kindle. As páginas saem em tons de cinza, no tamanho exato da tela do aparelho escolhido, e as margens brancas da digitalização são aparadas. Páginas duplas podem ser partidas em duas, na ordem de leitura. Serve para PDF de página escaneada; PDF de texto corrido fica melhor em Para Kindle. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
@@ -209,7 +227,8 @@
   };
   const kFmt = () => (($('kFmt') || {}).value || 'azw3');
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : 'e2p';
+  Manga.DEVICES.forEach((d, i) => $('mDev').add(new Option(d.label, d.id, !i, !i)));
 
   let cancelled = false;
   const say = (msg, err) => { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; };
@@ -265,7 +284,7 @@
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p'; $('optKindle').hidden = m !== 'kindle'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
+    $('optE2P').hidden = m !== 'e2p'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
     go.style.display = m === 'org' ? 'none' : '';   // no Organizar, os botões de salvar ficam junto das páginas
     if (m === 'org') $('orgOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
     listEl.hidden = m === 'org'; orgReset();
@@ -277,7 +296,7 @@
   $('kFmt').addEventListener('change', () => { $('note').textContent = MODES[mode].note; showFiles(); });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -2446,6 +2465,21 @@ ${spine.join('\n')}
     return { bytes: a.bytes, title: a.title, authors: a.authors, chapters: a.sections, garbledPages: meta.garbledPages };
   }
 
+  async function mangaConvert(file, say) {   // PDF -> AZW3 de layout fixo (mangá)
+    if (await kindOf(file) !== 'pdf') throw new Error('a aba Mangá recebe PDF.');
+    initPdfjs();
+    return Manga.convert(file, {
+      say, tick,
+      dev: Manga.deviceById($('mDev').value),
+      rtl: $('mDir').value === 'rtl',
+      split: $('mSplit').checked,
+      crop: $('mCrop').checked,
+      level: $('mLevel').checked,
+      png: $('mPng').checked,
+      title: stem(file),
+    });
+  }
+
   // ---------- lote ----------
   const save = (url, name) => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
 
@@ -2467,7 +2501,7 @@ ${spine.join('\n')}
 
   async function runBatch() {
     busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
-    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert }[mode] || epubToPdf;
+    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert, manga: mangaConvert }[mode] || epubToPdf;
     results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
     results = []; zipUrl = null; renderList();
     const used = new Map();
