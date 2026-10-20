@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Converterias</title>
-<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB, juntar PDFs ou EPUBs, imagens para PDF e vice-versa e organizar páginas de PDF).">
+<meta name="description" content="Conversor de coisas: converte arquivos 100% local, direto no navegador (EPUB para PDF, PDF para EPUB, juntar PDFs ou EPUBs, imagens para PDF e vice-versa, organizar páginas de PDF e gerar AZW3 para Kindle).">
 <meta name="theme-color" content="#2f6fed">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -71,6 +71,7 @@
     <button type="button" data-mode="i2p">Imagens → PDF</button>
     <button type="button" data-mode="p2i">PDF → Imagens</button>
     <button type="button" data-mode="org">Organizar PDF</button>
+    <button type="button" data-mode="kindle">Para Kindle (AZW3)</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -166,6 +167,7 @@
 <script>/*JSZIP*/</script>
 <script>/*PDFJS*/</script>
 <script type="text/plain" id="pdfWorker">/*PDFJSWORKER*/</script>
+<script>/*AZW3*/</script>
 <script>const FONT_DATA = /*FONTS*/{};</script>
 <script>
 (() => {
@@ -184,13 +186,15 @@
            note: 'Junta imagens em um PDF, uma por página, na ordem da lista. JPEG e PNG entram sem recompressão; fotos giradas pelo celular (EXIF) saem na posição certa. Dá para escolher imagens em várias vezes.' },
     p2i: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'png', mime: 'image/png', many: 'imagens',
            note: 'Cada página do PDF vira uma imagem, nomeada Arquivo - 001.png. Com mais de uma imagem você baixa tudo em um ZIP. Resoluções altas em PDFs grandes consomem bastante memória do aparelho.' },
+    kindle: { pick: 'Toque para escolher um ou mais .epub ou .pdf', accept: '.epub,.pdf,application/epub+zip,application/pdf', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'AZW3',
+              note: 'Gera AZW3 (KF8), o formato que o Kindle abre por cabo USB: copie o arquivo para a pasta "documents" do Kindle. EPUB vira AZW3 direto; PDF vira EPUB primeiro (com as opções acima) e depois AZW3. O AZW3 não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Fontes embutidas no EPUB são descartadas (o Kindle usa as dele). Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
              note: 'Junta vários PDFs em um PDF, ou vários EPUBs em um EPUB, na ordem da lista. O PDF ganha um marcador por arquivo (com os marcadores originais dentro); o EPUB ganha um sumário com um item por livro. Dá para escolher arquivos de pastas diferentes em várias vezes.' },
   };
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : 'e2p';
 
   let cancelled = false;
   const say = (msg, err) => { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; };
@@ -246,7 +250,7 @@
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
+    $('optE2P').hidden = m !== 'e2p'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
     go.style.display = m === 'org' ? 'none' : '';   // no Organizar, os botões de salvar ficam junto das páginas
     if (m === 'org') $('orgOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
     listEl.hidden = m === 'org'; orgReset();
@@ -257,7 +261,7 @@
   };
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -1713,7 +1717,7 @@
       if (r.m) h = `<code>${h}</code>`;
       if (r.i) h = `<i>${h}</i>`;
       if (r.b) h = `<b>${h}</b>`;
-      if (r.noteId) h = `<a epub:type="noteref" id="r-${r.noteId}" href="#${r.noteId}">${h}</a>`;
+      if (r.noteId) h = `<a epub:type="noteref" class="noteref" id="r-${r.noteId}" href="#${r.noteId}">${h}</a>`;
       return h;
     }).join('').replace(/<\/(b|i|sup|sub)><\1>/g, '');
     const files = [];   // { name, title, html, notes }
@@ -1798,6 +1802,7 @@ h1 { font-size: 1.6em; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; } h4 
 sup, sub { font-size: .7em; line-height: 0; }
 a { color: inherit; text-decoration: none; }
 a[epub|type~="noteref"] { vertical-align: super; font-size: .75em; }
+a.noteref { vertical-align: super; font-size: .75em; }
 pre { font: .8em/1.3 monospace; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; margin: .8em 0; padding: .5em; background: rgba(128,128,128,.12); }
 code { font-family: monospace; font-size: .9em; }
 pre code { font-size: 1em; }
@@ -1822,7 +1827,8 @@ th { font-weight: bold; }
       man.push('<item id="capa" href="capa.xhtml" media-type="application/xhtml+xml"/>');
       spine.push('<itemref idref="capa"/>');
     }
-    images.forEach((im, i) => { zip.file('OEBPS/' + im.name, im.bytes); man.push(`<item id="i${i + 1}" href="${im.name}" media-type="image/jpeg"/>`); });
+    const allHtml = files.map(f => f.html.join('\n') + '\n' + f.notes.join('\n')).join('\n');
+    images.filter(im => allHtml.includes(`"${im.name}"`)).forEach((im, i) => { zip.file('OEBPS/' + im.name, im.bytes); man.push(`<item id="i${i + 1}" href="${im.name}" media-type="image/jpeg"/>`); });   // só as imagens que o texto usa
     files.forEach((f, i) => {
       zip.file('OEBPS/' + f.name, page(f.title || title, f.html.join('\n') + (f.notes.length ? '\n' + f.notes.join('\n') : '')));
       man.push(`<item id="x${i + 1}" href="${f.name}" media-type="application/xhtml+xml"/>`);
@@ -2414,6 +2420,16 @@ ${spine.join('\n')}
   $('orgSave').addEventListener('click', () => { if (org && !busy) orgExport(false); });
   $('orgSaveSel').addEventListener('click', () => { if (org && !busy) orgExport(true); });
 
+  async function kindleConvert(file, say) {   // EPUB -> AZW3; PDF -> EPUB -> AZW3
+    const kind = await kindOf(file);
+    if (!kind) throw new Error('não é EPUB nem PDF.');
+    let epub, meta = {};
+    if (kind === 'pdf') { meta = await pdfToEpub(file, say); epub = meta.bytes; }
+    else epub = new Uint8Array(await file.arrayBuffer());
+    const a = await Azw3.convert(epub, { say, tick });
+    return { bytes: a.bytes, title: a.title, authors: a.authors, chapters: a.sections, garbledPages: meta.garbledPages };
+  }
+
   // ---------- lote ----------
   const save = (url, name) => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
 
@@ -2435,7 +2451,7 @@ ${spine.join('\n')}
 
   async function runBatch() {
     busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
-    const M = MODES[mode], convert = mode === 'p2e' ? pdfToEpub : epubToPdf;
+    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert }[mode] || epubToPdf;
     results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
     results = []; zipUrl = null; renderList();
     const used = new Map();
@@ -2497,7 +2513,7 @@ ${spine.join('\n')}
     try { await navigator.share({ files: results.map(r => new File([r.bytes], r.name, { type: r.mime })) }); }
     catch (e) { if (e.name !== 'AbortError') say('Não foi possível compartilhar: ' + (e.message || e), true); }
   });
-  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, { 'application/pdf': `PDFs (${results.length} livros).zip`, 'application/epub+zip': `EPUBs (${results.length} livros).zip` }[results[0].mime] || `Imagens (${results.length}).zip`); });
+  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, { 'application/pdf': `PDFs (${results.length} livros).zip`, 'application/epub+zip': `EPUBs (${results.length} livros).zip`, 'application/vnd.amazon.ebook': `AZW3 (${results.length} livros).zip` }[results[0].mime] || `Imagens (${results.length}).zip`); });
   sepBtn.addEventListener('click', async () => {
     sepBtn.disabled = true;
     for (let i = 0; i < results.length; i++) {

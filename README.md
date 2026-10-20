@@ -15,6 +15,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Imagens → PDF** (uma imagem por página) | disponível |
 | **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
+| **Para Kindle (AZW3)** (de EPUB ou de PDF, para copiar por cabo USB) | disponível |
 
 ## EPUB → PDF
 
@@ -111,13 +112,27 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 - As páginas são copiadas como estão (texto, imagens e links ficam iguais); a rotação soma-se à que a página já tinha. Os marcadores das páginas que ficam são mantidos, e os das páginas removidas somem.
 - Páginas duplicadas repetem seus recursos (fontes e imagens) no arquivo, então o PDF cresce um pouco. PDFs com senha não são suportados.
 
+## Para Kindle (AZW3)
+
+O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8). Esta aba gera o AZW3 direto no navegador, sem Calibre.
+
+1. Toque em **Para Kindle (AZW3)** (ou abra com `#kindle`) e escolha `.epub` e/ou `.pdf`. PDF vira EPUB primeiro (com as opções de **PDF → EPUB**) e depois AZW3.
+2. **Converter** e baixe os arquivos (ou o ZIP).
+3. Ligue o Kindle ao computador e copie os `.azw3` para a pasta `documents`. (Kindles mais novos usam MTP e aparecem como dispositivo, não como pen drive.)
+
+- **O que entra:** texto com parágrafos, títulos, listas, tabelas, notas de rodapé (pop-up), links internos, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG; JPEG progressivo ou CMYK é refeito), capa com miniatura, sumário em árvore (com os mesmos níveis do EPUB) e fontes TTF/OTF embutidas (inclusive as ofuscadas).
+- **O que sai:** `@media`, `@import`, seletores com namespace e fontes WOFF são descartados (o Kindle não os usa); áudio, vídeo e MathML também.
+- **Formato:** escrito a partir do formato do arquivo (PalmDB + MOBI 8, com os índices de esqueleto/fragmento/sumário e os bytes finais dos registros). A estrutura foi conferida com o Calibre e o KindleUnpack em mais de 150 livros e testes de estresse (leitura de volta sem perder palavras nem imagens, e sem avisos do Calibre sobre o índice).
+- **Limites:** não foi testado em um Kindle de verdade. Se um livro não abrir ou ficar sem capa na biblioteca, reinicie o Kindle e me diga o modelo. O AZW3 não serve para o Send to Kindle (e-mail): para isso envie o EPUB.
+
 ## Desenvolvimento
 
 ```bash
 python3 build.py   # gera index.html a partir de src/template.html + vendor/
 ```
 
-- `src/template.html`: interface e todo o código dos conversores.
+- `src/template.html`: interface e o código dos conversores.
+- `src/azw3.js`: gravador de AZW3 (embutido no `index.html` pelo `build.py`).
 - `vendor/`: bibliotecas e fontes embutidas (ver [THIRD_PARTY.md](THIRD_PARTY.md)).
 - `sw.js` e `manifest.webmanifest`: PWA (cache offline).
 
