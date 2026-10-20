@@ -372,10 +372,15 @@ const Manga = (() => {
     const MAXMAG = 4, MINMAG = 1.15;
     const areas = [], views = [];
     // descarta antes de numerar: o ordinal precisa ser a sequência de leitura, sem buraco
-    const useful = det.panels.map(q => {
+    const all = det.panels.map(q => {
       const qw = q.x1 - q.x0, qh = q.y1 - q.y0;
       return { q, qw, qh, s: Math.min(dev.w / qw, dev.h / qh, MAXMAG) };
-    }).filter(u => u.s >= MINMAG);   // quadro que já ocupa a tela não ganha nada em ampliar
+    });
+    // quadro que já ocupa a tela ganha pouco em ampliar — mas se sobrar menos de dois,
+    // a página inteira ficaria muda, e aí vale manter: a máscara isola o quadro mesmo
+    // com ampliação pequena, que é metade do valor do Panel View
+    const big = all.filter(u => u.s >= MINMAG);
+    const useful = big.length >= 2 ? big : all;
     useful.forEach(({ q, qw, qh, s }, i) => {
       const mw = Math.round(p.w * s), mh = Math.round(p.h * s);
       const L = Math.round((dev.w - qw * s) / 2), T = Math.round((dev.h - qh * s) / 2);
