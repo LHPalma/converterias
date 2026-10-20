@@ -122,7 +122,7 @@ O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8). Esta aba gera 
 
 - **O que entra:** texto com parágrafos, títulos, listas, tabelas, notas de rodapé (pop-up), links internos, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG; JPEG progressivo ou CMYK é refeito), capa com miniatura, sumário em árvore (com os mesmos níveis do EPUB) e fontes TTF/OTF embutidas (inclusive as ofuscadas).
 - **O que sai:** `@media`, `@import`, seletores com namespace e fontes WOFF são descartados (o Kindle não os usa); áudio, vídeo e MathML também.
-- **Formato:** escrito a partir do formato do arquivo (PalmDB + MOBI 8, com os índices de esqueleto/fragmento/sumário e os bytes finais dos registros). A estrutura foi conferida com o Calibre e o KindleUnpack em mais de 150 livros e testes de estresse (leitura de volta sem perder palavras nem imagens, e sem avisos do Calibre sobre o índice).
+- **Formato:** escrito a partir do formato do arquivo (PalmDB + MOBI 8, com os índices de esqueleto/fragmento/sumário e os bytes finais dos registros). A estrutura foi conferida com o Calibre e o KindleUnpack em mais de 300 arquivos (livros reais, EPUBs aleatórios e casos extremos, até um livro de 47 MB de texto): leitura de volta sem perder palavras nem imagens, fragmentos de texto bem formados e sem avisos do Calibre sobre o índice.
 - **Limites:** não foi testado em um Kindle de verdade. Se um livro não abrir ou ficar sem capa na biblioteca, reinicie o Kindle e me diga o modelo. O AZW3 não serve para o Send to Kindle (e-mail): para isso envie o EPUB.
 
 ## Desenvolvimento
