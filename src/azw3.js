@@ -176,6 +176,27 @@ const Azw3 = (() => {
     return { comps, progressive, orient, w, h };
   }
   const toBlob = (cv, type, q) => new Promise(r => cv.toBlob(r, type, q));
+  // decodifica com <img>, caminho para SVG (o createImageBitmap do Chrome não aceita)
+  function decodeViaImg(raw, type, svg) {
+    return new Promise(res => {
+      const url = URL.createObjectURL(new Blob([raw], { type: type || 'image/svg+xml' }));
+      const im = new Image();
+      im.onload = () => {
+        let w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+        if (svg && (!w || !h)) {
+          const vb = /viewBox\s*=\s*["']([-\d.eE\s,]+)["']/.exec(dec.decode(raw.subarray(0, 4096)));
+          const n = vb ? vb[1].trim().split(/[\s,]+/).map(Number) : null;
+          if (n && n.length === 4 && n[2] > 0 && n[3] > 0) { w = Math.round(n[2]); h = Math.round(n[3]); }
+          else { w = 600; h = 800; }
+          im.width = w; im.height = h;
+        }
+        if (!w || !h) { URL.revokeObjectURL(url); return res(null); }
+        res({ src: im, width: w, height: h, close: () => URL.revokeObjectURL(url) });
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); res(null); };
+      im.src = url;
+    });
+  }
   // devolve { bytes, mime, w, h } em formato que o Kindle lê (JPEG, PNG, GIF)
   async function prepareImage(raw, hint) {
     const kind = sniff(raw);
@@ -186,13 +207,17 @@ const Azw3 = (() => {
     if (kind && !needs && Math.max(w0, h0) <= 4096 && w0 > 0 && h0 > 0 && raw.length <= 8 * 1048576) return { bytes: raw, mime: 'image/' + kind, w: w0, h: h0 };
     let svg = false;
     if (!kind && /<svg[\s>]/i.test(dec.decode(raw.subarray(0, 2048)))) svg = true;
+    const type = svg ? 'image/svg+xml' : kind ? 'image/' + kind : (hint || '');
     let bmp;
-    try { bmp = await createImageBitmap(new Blob([raw], { type: svg ? 'image/svg+xml' : kind ? 'image/' + kind : (hint || '') }), { imageOrientation: 'from-image' }); }
-    catch (e) { return null; }
+    try { const ib = await createImageBitmap(new Blob([raw], { type }), { imageOrientation: 'from-image' });
+          bmp = { src: ib, width: ib.width, height: ib.height, close: () => ib.close() }; }
+    catch (e) { bmp = null; }
+    if (!bmp) bmp = await decodeViaImg(raw, type, svg);   // SVG e afins que o createImageBitmap recusa
+    if (!bmp) return null;
     const MAX = 3200, k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-    const cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0, w, h); bmp.close();
+    const cx = cv.getContext('2d'); cx.drawImage(bmp.src, 0, 0, w, h); if (bmp.close) bmp.close();
     let alpha = false;
     if (kind !== 'jpeg') { const d = cx.getImageData(0, 0, w, h).data; for (let i = 3; i < d.length; i += 4) if (d[i] < 255) { alpha = true; break; } }
     if (alpha || kind === 'png' || kind === 'gif') return { bytes: new Uint8Array(await (await toBlob(cv, 'image/png')).arrayBuffer()), mime: 'image/png', w, h };
@@ -385,7 +410,10 @@ const Azw3 = (() => {
   }
 
   // ---------- conversão ----------
+  // layout fixo (mangá e HQ): uma imagem por página, sem refluxo
+  // os valores de EXTH foram conferidos contra o que o kindlegen da Amazon emite
   async function convert(epubBytes, opt = {}) {
+    const fixed = opt.fixed || null;
     const say = opt.say || (() => {}), tick = opt.tick || (() => Promise.resolve());
     say('Lendo o EPUB…'); await tick();
     const ep = await readEpub(epubBytes);
@@ -566,7 +594,8 @@ const Azw3 = (() => {
     const files = [];
     for (const dc of docs) {
       dc.tree = prune(dc.tree);
-      const head = `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${attr(dc.htmlLang)}" xml:lang="${attr(dc.htmlLang)}"${dc.htmlAttrs}>\n  <head>\n    <title>${xml(clean(dc.title))}</title>\n    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n${dc.sheets.map(s => `<link rel="stylesheet" type="text/css" href="kindle:flow:${b32(cssFlow.get(s.path), 4)}?mime=text/css"/>\n`).join('')}  </head>\n  `;
+      const vp = fixed ? `    <meta name="viewport" content="width=${fixed.w}, height=${fixed.h}"/>\n` : '';
+      const head = `<?xml version="1.0" encoding="UTF-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${attr(dc.htmlLang)}" xml:lang="${attr(dc.htmlLang)}"${dc.htmlAttrs}>\n  <head>\n    <title>${xml(clean(dc.title))}</title>\n    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n${vp}${dc.sheets.map(s => `<link rel="stylesheet" type="text/css" href="kindle:flow:${b32(cssFlow.get(s.path), 4)}?mime=text/css"/>\n`).join('')}  </head>\n  `;
       let sk = head + `<body${dc.bodyAttrs.length ? ' ' + dc.bodyAttrs.join(' ') : ''} aid="${dc.bodyAid}">\n`.replace(/>\n$/, '>');
       let skB = ulen(sk);
       const chunks = [], shells = [];
@@ -743,7 +772,17 @@ const Azw3 = (() => {
     eStr(501, 'EBOK');
     eStr(503, book.title);
     eStr(524, lang);
-    eStr(525, book.writing || (book.rtl ? 'horizontal-rl' : 'horizontal-lr'));
+    if (fixed) {
+      eStr(122, 'true');                               // fixed-layout
+      eStr(123, fixed.bookType || 'comic');            // book-type
+      eStr(124, fixed.orientation || 'portrait');      // orientation-lock
+      eStr(126, `${fixed.w}x${fixed.h}`);              // original-resolution
+      eStr(127, 'true');                               // zero-gutter
+      eStr(128, 'true');                               // zero-margin
+      eStr(132, fixed.regionMag ? 'true' : 'false');   // RegionMagnification: só com marcação de painel na página
+      eStr(527, fixed.rtl ? 'rtl' : 'ltr');            // page-progression-direction
+    }
+    eStr(525, fixed ? (fixed.rtl ? 'horizontal-rl' : 'horizontal-lr') : (book.writing || (book.rtl ? 'horizontal-rl' : 'horizontal-lr')));
     eStr(528, 'true');
     eStr(535, '0730-890adc2');
     const exBody = cat(exth.map(([t, d]) => cat([u32(t), u32(8 + d.length), d])));
@@ -797,5 +836,5 @@ const Azw3 = (() => {
     return { bytes, title: book.title, authors: book.authors, lang, textLength: fullText.length, records: n, images: resources.length, sections: files.length };
   }
 
-  return { convert, palmCompress, vwi, b32, _readEpub: readEpub };
+  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage };
 })();

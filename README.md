@@ -15,7 +15,8 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Imagens → PDF** (uma imagem por página) | disponível |
 | **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
-| **Para Kindle (AZW3)** (de EPUB ou de PDF, para copiar por cabo USB) | disponível |
+| **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
+| **Mangá** (PDF escaneado → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
 
 ## EPUB → PDF
 
@@ -112,18 +113,46 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 - As páginas são copiadas como estão (texto, imagens e links ficam iguais); a rotação soma-se à que a página já tinha. Os marcadores das páginas que ficam são mantidos, e os das páginas removidas somem.
 - Páginas duplicadas repetem seus recursos (fontes e imagens) no arquivo, então o PDF cresce um pouco. PDFs com senha não são suportados.
 
-## Para Kindle (AZW3)
+## Para Kindle (AZW3 ou KFX)
 
-O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8). Esta aba gera o AZW3 direto no navegador, sem Calibre.
+O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8) e KFX. Esta aba gera os dois direto no navegador, sem Calibre.
 
-1. Toque em **Para Kindle (AZW3)** (ou abra com `#kindle`) e escolha `.epub` e/ou `.pdf`. PDF vira EPUB primeiro (com as opções de **PDF → EPUB**) e depois AZW3.
+1. Toque em **Para Kindle** (ou abra com `#kindle`), escolha o **formato** e os `.epub` e/ou `.pdf`. PDF vira EPUB primeiro (com as opções de **PDF → EPUB**) e depois AZW3/KFX.
 2. **Converter** e baixe os arquivos (ou o ZIP).
-3. Ligue o Kindle ao computador e copie os `.azw3` para a pasta `documents`. (Kindles mais novos usam MTP e aparecem como dispositivo, não como pen drive.)
+3. Ligue o Kindle ao computador e copie os `.azw3`/`.kfx` para a pasta `documents`. (Kindles mais novos usam MTP e aparecem como dispositivo, não como pen drive.)
+
+**Qual escolher:** AZW3 abre em qualquer Kindle e preserva mais do EPUB (fontes embutidas, estilos, notas em pop-up). KFX é o formato atual da Amazon, com tipografia melhor (hifenização e justificação da Amazon), e funciona nos aparelhos de 2015 para cá; aqui ele sai com o texto estruturado e as imagens, sem o CSS do EPUB. Na dúvida, AZW3.
+
+### AZW3
 
 - **O que entra:** texto com parágrafos, títulos, listas, tabelas, notas de rodapé (pop-up), links internos, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG; JPEG progressivo ou CMYK é refeito), capa com miniatura, sumário em árvore (com os mesmos níveis do EPUB) e fontes TTF/OTF embutidas (inclusive as ofuscadas).
 - **O que sai:** `@media`, `@import`, seletores com namespace e fontes WOFF são descartados (o Kindle não os usa); áudio, vídeo e MathML também.
 - **Formato:** escrito a partir do formato do arquivo (PalmDB + MOBI 8, com os índices de esqueleto/fragmento/sumário e os bytes finais dos registros). A estrutura foi conferida com o Calibre e o KindleUnpack em mais de 300 arquivos (livros reais, EPUBs aleatórios e casos extremos, até um livro de 47 MB de texto): leitura de volta sem perder palavras nem imagens, fragmentos de texto bem formados e sem avisos do Calibre sobre o índice.
 - **Limites:** não foi testado em um Kindle de verdade. Se um livro não abrir ou ficar sem capa na biblioteca, reinicie o Kindle e me diga o modelo. O AZW3 não serve para o Send to Kindle (e-mail): para isso envie o EPUB.
+
+### KFX
+
+- **O que entra:** parágrafos, títulos (h1–h6), listas, tabelas, `<pre>`, citações, quebras de linha, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG), capa para a biblioteca, links internos e sumário em árvore.
+- **O que sai:** o CSS do EPUB e as fontes embutidas (o KFX usa os estilos e as fontes do próprio Kindle); áudio, vídeo e MathML também.
+- **Formato:** escrito do zero — contêiner `CONT`, fragmentos em [Amazon Ion](https://amzn.github.io/ion-docs/) binário com a tabela de símbolos `YJ_symbols`, mapa de posições, índice de seções e metadados do livro. Nada de SQLite/KDF no meio: sai o `.kfx` monolítico, como o que a Amazon entrega ao aparelho.
+- **Como foi conferido:** 246 EPUBs convertidos e lidos de volta com o `kfxlib` do plugin **KFX Input** do Calibre, sem erro nem aviso de estrutura e **sem perder nem inventar uma palavra** em nenhum deles — 220 gerados por um fuzzer (palavras aleatórias em sete alfabetos, estrutura, sumário e imagens aleatórios), 24 casos extremos também gerados (livro de 50 MB com 300 capítulos, parágrafo de 30 mil palavras, 400 capítulos, japonês com emoji, HTML malformado, EPUB 2, EPUB ofuscado, imagens em PNG/JPEG/GIF/WebP/BMP/SVG) e 2 livros reais. A cobertura é ampla em estrutura e rasa em livros de verdade.
+- **Limites:** não foi testado em um Kindle de verdade, e o KFX é formato fechado da Amazon: se um livro não abrir, use AZW3. O KFX também não serve para o Send to Kindle (e-mail).
+
+## Mangá
+
+Mangá e HQ no Kindle não são texto que reflui: são **uma imagem por página**, num AZW3 de **layout fixo** — é assim que a Amazon entrega quadrinhos. Esta aba faz isso a partir de um PDF escaneado.
+
+1. Toque em **Mangá** (ou abra com `#manga`) e escolha um ou mais `.pdf`.
+2. Escolha o **aparelho** (define o tamanho exato das páginas), o **sentido de leitura** e o que fazer com as páginas duplas.
+3. **Converter** e copie os `.azw3` para a pasta `documents` do Kindle.
+
+- **O que ele faz com cada página:** rasteriza, converte para tons de cinza (o e-ink não mostra cor), apara a moldura branca da digitalização, redimensiona para a tela do aparelho sem distorcer e centraliza o que sobra. Páginas duplas (em paisagem) podem ser partidas em duas, já na ordem de leitura — na leitura da direita para a esquerda, a metade direita vem primeiro.
+- **Panel View:** cada página sai com as regiões de magnificação da Amazon marcadas — duplo toque amplia um pedaço da página e o toque seguinte caminha para o próximo, na ordem de leitura. Dá para escolher **4 painéis** (ampliação maior, quadrantes) ou **2 painéis** (metades de cima e de baixo, ampliação menor), ou desligar. A marcação é a que o Kindle reconhece: um `<a class="app-amzn-magnify">` cobrindo cada região, com `targetId` e `ordinal`, e a mesma imagem ampliada ancorada num canto dentro de um `<div>` escondido — então o arquivo **não cresce**, é a mesma imagem reaproveitada. Páginas que já cabem inteiras na tela não recebem painéis.
+- **Sentido de leitura:** `horizontal-rl` para mangá japonês, `horizontal-lr` para o resto. Define a ordem das páginas e também a dos painéis: em mangá, o canto superior direito é o `ordinal: 1`.
+- **Aparelhos** (resoluções dos perfis do [Kindle Comic Converter](https://github.com/ciromattia/kcc)): Paperwhite 3/4, Voyage, Oasis 1 e Kindle 11 (1072 × 1448); Paperwhite 5 e Signature (1236 × 1648); Oasis 2/3 e Libra (1264 × 1680); Paperwhite 12ª geração e Colorsoft (1272 × 1696); Scribe (1860 × 2480); Paperwhite 1/2 (758 × 1024); Kindle básico antigo (600 × 800).
+- **Formato:** AZW3 (KF8) de layout fixo. Os metadados que fazem o Kindle tratar o arquivo como quadrinho vão nos registros EXTH: `122 fixed-layout`, `123 book-type=comic`, `124 orientation-lock`, `126 original-resolution`, `127 zero-gutter`, `128 zero-margin`, `132 RegionMagnification`, `525 primary-writing-mode` e `527 page-progression-direction`. Cada página é um XHTML com `<meta name="viewport">` e a imagem posicionada em pixels.
+- **Como foi conferido:** o mesmo EPUB de layout fixo foi passado pelo **kindlegen da Amazon** e pelo nosso gravador, e os registros EXTH de layout fixo saem **idênticos**; o HTML e o CSS gerados também batem. A prova de que a marcação de painel é a certa: montei um EPUB com ela, passei pelo kindlegen e ele manteve `RegionMagnification = true` — sem a marcação, ele força `false`. A saída passa limpa pelo `calibre-debug --inspect-mobi`, pelo KindleUnpack e pelos verificadores de índice e de TBS, nos três modos de painel. Testado com PDF de 63 páginas na resolução do Scribe (31 MB, 23 s, 141 MB de memória), com e sem partir páginas duplas, em JPEG e em PNG, nos dois sentidos de leitura, e com página quase vazia.
+- **Limites:** não foi testado num Kindle de verdade. Serve para PDF de página escaneada; PDF de texto corrido fica muito melhor na aba **Para Kindle**. Os painéis são **regiões geométricas** (quadrantes ou metades), não os quadrinhos de verdade: não há detecção da borda real dos painéis. A ampliação reusa a imagem da página, então amplia sem ganhar detalhe. Não faz a quantização para os 16 tons do e-ink e não lê CBZ ainda.
 
 ## Desenvolvimento
 
@@ -133,6 +162,8 @@ python3 build.py   # gera index.html a partir de src/template.html + vendor/
 
 - `src/template.html`: interface e o código dos conversores.
 - `src/azw3.js`: gravador de AZW3 (embutido no `index.html` pelo `build.py`).
+- `src/kfx.js`: gravador de KFX, com o codificador de Amazon Ion binário (idem).
+- `src/manga.js`: PDF → páginas de mangá (cinza, aparo, partição de páginas duplas) e o EPUB de layout fixo que vira AZW3 (idem).
 - `vendor/`: bibliotecas e fontes embutidas (ver [THIRD_PARTY.md](THIRD_PARTY.md)).
 - `sw.js` e `manifest.webmanifest`: PWA (cache offline).
 
