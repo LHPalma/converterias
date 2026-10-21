@@ -1948,11 +1948,11 @@ const Ocr = (() => {
         }
         sect.push([i, r]);
       }
-      let body = `<h1>${esc(c.title)}</h1>`;
-      for (const b of book.paragraphs(sect, openers)) {
-        if (b.t === 'p') body += `<p>${esc(b.text.replace(/--/g, '-').replace(/\s*[|¦]\s*/g, ' ').trim())}</p>`;
-        else body += `<p class="fig"><img src="${await addImg(b.i)}" alt=""/></p>`;
-      }
+      const blocks = book.paragraphs(sect, openers), fig = async b => `<p class="fig"><img src="${await addImg(b.i)}" alt=""/></p>`;
+      let body = '';
+      while (blocks.length && blocks[0].t === 'img') body += await fig(blocks.shift());   // ilustração de abertura vem antes do título
+      body += `<h1>${esc(c.title)}</h1>`;
+      for (const b of blocks) body += b.t === 'p' ? `<p>${esc(b.text.replace(/--/g, '-').replace(/\s*[|¦]\s*/g, ' ').trim())}</p>` : await fig(b);
       files.push({ name: `c${String(files.length + 1).padStart(2, '0')}.xhtml`, title: c.title, body });
     }
     const X = '<?xml version="1.0" encoding="utf-8"?>\n', lang = meta.lang || 'pt-BR';
