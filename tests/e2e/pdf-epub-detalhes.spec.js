@@ -50,8 +50,8 @@ test('inicial grande numa linha própria volta para o começo do parágrafo', as
   expect(ep.html).not.toMatch(/<h\d[^>]*>E<\/h\d>/);
 });
 
-test.fixme('capitular que desce até a 2ª linha (o caso comum) volta para o começo do parágrafo', async ({ page }) => {
-  // Hoje a letra é agrupada com a 2ª linha e o texto sai "…de livros que E morava num navegador…".
+test('capitular que desce até a 2ª linha (o caso comum) volta para o começo do parágrafo', async ({ page }) => {
+  // o agrupamento de linhas junta a letra à 2ª linha; ela volta para o começo da 1ª
   const ep = await convert(page, await bookWith(async (pg, k, { F, para }) => {
     let y = 560;
     if (k === 0) {
@@ -63,6 +63,24 @@ test.fixme('capitular que desce até a 2ª linha (o caso comum) volta para o com
     for (let n = 0; n < 5; n++) y = para(pg, y);
   }));
   expect(ep.html).toContain('Era uma vez, numa terra distante, um conversor de livros que morava num navegador');
+  expect(ep.html).not.toMatch(/que E morava/);
+});
+
+test('capitular de 3 linhas volta para o começo do parágrafo, não da 2ª linha', async ({ page }) => {
+  const ep = await convert(page, await bookWith(async (pg, k, { F, para }) => {
+    let y = 560;
+    if (k === 0) {
+      y = para(pg, y);                                                   // parágrafo anterior, logo acima
+      pg.drawText('U', { x: 50, y: y - 30, size: 50, font: F.r });
+      pg.drawText('ma vez, numa terra distante, havia um conversor de', { x: 92, y, size: 11, font: F.r });
+      pg.drawText('livros que morava num navegador e que nunca mandava', { x: 92, y: y - 15, size: 11, font: F.r });
+      pg.drawText('nada para servidor algum, nem mesmo um bilhete.', { x: 92, y: y - 30, size: 11, font: F.r });
+      y -= 60;
+    }
+    for (let n = 0; n < 4; n++) y = para(pg, y);
+  }));
+  expect(ep.html).toContain('Uma vez, numa terra distante, havia um conversor de livros que morava');
+  expect(ep.html).not.toMatch(/margem\. ?U|que U|livros U/);
 });
 
 test('marcadores de lista desenhados (quadradinhos) viram "•"; logotipo repetido em toda página sai', async ({ page }) => {

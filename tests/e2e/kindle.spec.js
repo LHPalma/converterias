@@ -152,10 +152,13 @@ test('KFX: contêiner CONT, texto, sumário, metadados, capa e SHA-1 conferem', 
   await expect(page.locator('#sepBtn')).toHaveText('Baixar o KFX');
 });
 
-test.fixme('KFX: texto de elemento escondido (hidden) não deveria aparecer no livro', async ({ page }) => {
-  // O AZW3 mantém o atributo hidden (o Kindle esconde) e o EPUB → PDF pula; o KFX põe o texto no livro.
-  const [{ book: x }] = await kfx(page, [await epub({ chapters: ['<h1>Um</h1><p>visível</p><p hidden="hidden">texto escondido</p>'], cover: false })]);
+test('KFX: texto de elemento escondido (hidden) não aparece no livro', async ({ page }) => {
+  // como no AZW3 (o Kindle esconde) e no EPUB → PDF (que pula), em bloco e em linha
+  const [{ book: x }] = await kfx(page, [await epub({ chapters: ['<h1>Um</h1><p>visível <span hidden="">sumido</span>fim</p><p hidden="hidden">texto escondido</p><div hidden=""><p>bloco escondido</p></div>'], cover: false })]);
   expect(x.text).not.toContain('texto escondido');
+  expect(x.text).not.toContain('bloco escondido');
+  expect(x.text).not.toContain('sumido');
+  expect(x.text).toContain('visível fim');
 });
 
 test('KFX: capítulo enorme é partido em blocos de até 8 KB; imagens WebP viram JPEG', async ({ page }) => {

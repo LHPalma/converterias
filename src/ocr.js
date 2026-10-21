@@ -20,6 +20,8 @@ const Ocr = (() => {
   const NOTES_T = /^(notas( e referencias)?|referencias( bibliograficas)?|bibliografia)$/;
   const URL_OPEN = /(?:https?:\/\/|www\.|\bh[ert][rtcp]{1,2}s?:\/\/)\S*$/i;   // parágrafo que termina no meio de um endereço
   const URL_ANY = /(?:https?:\/\/|www\.|\bh[ert][rtcp]{1,2}s?:\/\/)/i;
+  // a linha seguinte continua o endereço? sim se ele parou num separador ou se a palavra seguinte tem cara de endereço
+  const urlGoesOn = (cur, next) => /[\/\-_.=?&#%~]$/.test(cur) || /[\/.=?&#_]/.test(next.trim().split(/\s/)[0]);
   const fixUrls = t => t.replace(/\bh[ert][rtcp]{1,2}s?:\/\//gi, m => /^https?:/i.test(m) ? m : 'https://');   // "hrtps://" -> "https://"
   const LOW_WORD = 70;    // palavra com confiança abaixo disso é "duvidosa"
   const JUNK_LINE = 60;   // linha cuja confiança média (ponderada pelo tamanho) fica abaixo disso é lixo do OCR
@@ -172,7 +174,10 @@ const Ocr = (() => {
             else cur += ' ' + x.t;
             prev = x; continue;
           }
-          else if (cur != null && URL_OPEN.test(cur) && !/^\d{1,3}\s+\S/.test(x.t)) cur += x.t.replace(/\s+/g, '');   // endereço quebrado no fim da linha: continua sem espaço
+          else if (cur != null && URL_OPEN.test(cur) && !/^\d{1,3}\s+\S/.test(x.t) && urlGoesOn(cur, x.t)) {   // endereço quebrado no fim da linha:
+            const [, head, rest] = /^(\S*)\s*(.*)$/.exec(x.t.trim());                                      // só a 1ª palavra é dele; o resto é a frase
+            cur += head + (rest ? ' ' + rest : '');
+          }
           else if (np) { flush(); cur = x.t; }
           else if (cur.endsWith('-') && /^\p{Ll}/u.test(x.t)) cur = cur.slice(0, -1) + x.t;   // hifenização de fim de linha
           else cur += ' ' + x.t;

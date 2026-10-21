@@ -231,7 +231,7 @@ const Kfx = (() => {
           if (c.nodeType === 3) s += c.nodeValue;
           else if (c.nodeType === 1) {
             const nm = c.localName.toLowerCase();
-            if (SKIP.has(nm)) continue;
+            if (SKIP.has(nm) || c.hasAttribute('hidden')) continue;   // hidden: o Kindle (e o EPUB → PDF) não mostra
             if (nm === 'br') s += '\n'; else s += inlineText(c);
           }
         }
@@ -259,7 +259,7 @@ const Kfx = (() => {
           if (c.nodeType === 3) { buf += c.nodeValue; continue; }
           if (c.nodeType !== 1) continue;
           const name = c.localName.toLowerCase();
-          if (SKIP.has(name)) continue;
+          if (SKIP.has(name) || c.hasAttribute('hidden')) continue;
           if (name === 'br') { buf += '\n'; continue; }
           if (!isBlocky(c) && !hasBlocky(c)) { buf += inlineText(c); continue; }
           flush();
