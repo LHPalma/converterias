@@ -127,8 +127,8 @@ const Azw3 = (() => {
         const uidRef = opf.documentElement.getAttribute('unique-identifier');
         const uidEl = uidRef && [...opf.querySelectorAll('metadata > identifier, dc\\:identifier')].find(e => e.getAttribute('id') === uidRef);
         const uid = uidEl ? uidEl.textContent : '';
-        for (const ed of parse(await encF.async('string')).getElementsByTagName('EncryptedData')) {
-          const alg = ed.getElementsByTagName('EncryptionMethod')[0]?.getAttribute('Algorithm') || '', ref = ed.getElementsByTagName('CipherReference')[0];
+        for (const ed of parse(await encF.async('string')).getElementsByTagNameNS('*', 'EncryptedData')) {
+          const alg = ed.getElementsByTagNameNS('*', 'EncryptionMethod')[0]?.getAttribute('Algorithm') || '', ref = ed.getElementsByTagNameNS('*', 'CipherReference')[0];
           if (!ref) continue;
           let u = ref.getAttribute('URI'); try { u = decodeURIComponent(u); } catch (e) {}
           obf.set(u.replace(/^\//, ''), { alg, uid });

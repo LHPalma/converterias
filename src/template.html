@@ -1101,11 +1101,13 @@
     if (ocrWorker && ocrKey === key) return ocrWorker;
     await ocrStop();
     const base = new URL('vendor/ocr/', location.href).href;
-    const make = q => Tesseract.createWorker(lang, 1, {
+    // sem errorHandler, uma falha ao baixar o idioma vira erro solto e o createWorker nunca termina (o app ficava parado)
+    const make = q => new Promise((ok, no) => Tesseract.createWorker(lang, 1, {
       workerPath: base + 'worker.min.js', corePath: base + 'tesseract-core-simd-lstm.wasm.js', gzip: false,
       langPath: q === 'best' ? BEST_URL : base, cacheMethod: q === 'best' ? 'write' : 'none',   // o modelo grande fica no cache do navegador (IndexedDB)
-      logger: m => { if (m.status && /^(loading|initializ)/.test(m.status)) say(q === 'best' && /language/.test(m.status) ? `Baixando o modelo de alta qualidade… ${Math.round((m.progress || 0) * 100)}%` : 'Preparando o OCR…'); }
-    });
+      logger: m => { if (m.status && /^(loading|initializ)/.test(m.status)) say(q === 'best' && /language/.test(m.status) ? `Baixando o modelo de alta qualidade… ${Math.round((m.progress || 0) * 100)}%` : 'Preparando o OCR…'); },
+      errorHandler: e => no(new Error(String(e))),
+    }).then(ok, no));
     try {
       try { ocrWorker = await make(quality); }
       catch (e) {
@@ -2171,9 +2173,9 @@ ${spine.join('\n')}
         const uidRef = opf.documentElement.getAttribute('unique-identifier');
         const uidEl = uidRef && [...opf.querySelectorAll('metadata > identifier, dc\\:identifier')].find(e => e.getAttribute('id') === uidRef);
         const uid = uidEl ? uidEl.textContent.replace(/[ \u0009\u000d\u000a]/g, '') : '';
-        for (const ed of xml(await enc.async('string')).getElementsByTagName('EncryptedData')) {
-          const alg = (ed.getElementsByTagName('EncryptionMethod')[0] || {}).getAttribute?.('Algorithm') || '';
-          const ref = ed.getElementsByTagName('CipherReference')[0];
+        for (const ed of xml(await enc.async('string')).getElementsByTagNameNS('*', 'EncryptedData')) {
+          const alg = (ed.getElementsByTagNameNS('*', 'EncryptionMethod')[0] || {}).getAttribute?.('Algorithm') || '';
+          const ref = ed.getElementsByTagNameNS('*', 'CipherReference')[0];
           if (!ref) continue;
           if (alg !== 'http://www.idpf.org/2008/embedding' || !uid) throw fail('EPUB com proteção (DRM): não dá para juntar.');
           let u = ref.getAttribute('URI'); try { u = decodeURIComponent(u); } catch (e) {}
@@ -2627,7 +2629,7 @@ ${spine.join('\n')}
   async function showOut(M) {
     if (!results.length) return;
     if (results.length > 1) {
-      say('Montando o ZIP…'); await tick();
+      say('Montando o ZIP…'); await new Promise(r => setTimeout(r, 0));   // sem tick(): depois de cancelar, os prontos ainda viram ZIP
       const z = new JSZip();
       results.forEach(r => z.file(r.name, r.bytes, { compression: 'STORE' }));
       zipUrl = URL.createObjectURL(await z.generateAsync({ type: 'blob', compression: 'STORE' }));
