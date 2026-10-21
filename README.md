@@ -194,6 +194,8 @@ PDF de livro escaneado vira PDF com texto de verdade, na mesma diagramação do 
 - **Parágrafos** reconstruídos pela margem e pelo recuo, com a hifenização de fim de linha desfeita; cabeçalhos correntes e números de página saem.
 - **Capítulos** detectados pelos cabeçalhos correntes (o título é o do cabeçalho); a página de abertura e a ilustração colada nela entram no capítulo novo.
 - **Ilustrações, gráficos e páginas com pouco texto** entram como imagem, sem as bordas do scan; a primeira página vira a capa.
+- **Confiança por palavra**: linhas-lixo do OCR (borda do scan, manchas) são descartadas e o resultado avisa quantas palavras foram lidas com pouca certeza.
+- **Correção por dicionário** (opção *Corrigir palavras com o dicionário*, só português): usa o dicionário Hunspell pt-BR (VERO, ~5 MB, baixado na primeira vez e guardado no cache). Só mexe em palavras que o dicionário não conhece **e** que o OCR leu com pouca certeza, e só quando há uma única correção clara (acento perdido, confusões típicas como rn/m e l/i); junta palavras partidas pela hifenização e separa palavras coladas ("quevirão" → "que virão"). Nomes próprios, siglas, números e endereços ficam como estão.
 - No **PDF → EPUB** (e no Para Kindle) a opção *Fazer OCR se o PDF for escaneado* usa o mesmo caminho e gera o EPUB.
 
 ### Limitações

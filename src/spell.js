@@ -108,6 +108,8 @@ const Spell = (() => {
         if (start === n) {
           if (parts.length < 2) return;
           const fn = parts.some(x => STOP.has(x));
+          if (!allowAny && !(STOP.has(parts[0]) && parts[0].length > 1)) return;   // sem dúvida do OCR: só palavra funcional colada NO COMEÇO ("quevirão")
+          if (parts.length > 2 && parts.some(x => x.length === 1)) return;          // nada de peças de 1 letra em divisões de 3
           if (!fn && !allowAny) return;
           const key = x => x.filter(q => !STOP.has(q)).length * 10 + x.length;   // menos palavras "de conteúdo" e menos peças
           const better = !best || (fn && !bestFn) || (fn === bestFn && key(parts) < key(best));
@@ -127,7 +129,8 @@ const Spell = (() => {
     // palavra partida por hifenização que o OCR não juntou: "nave- gar" -> "navegar"
     text = text.replace(/(\p{L}{2,})-\s+(\p{Ll}\p{L}*)/gu, (m, a, b) => dict.known(a + b) && !dict.known(a) && !dict.known(b) ? log(m, a + b) : m);
     return text.replace(/\p{L}+(?:['’-]\p{L}+)*/gu, (tok, off, str) => {
-      if (tok.length < 3 || /\d/.test(str[off - 1] || '') || /\d/.test(str[off + tok.length] || '')) return tok;
+      const pre = str[off - 1] || '', post = str[off + tok.length] || '';
+      if (tok.length < 3 || /\d/.test(pre) || /\d/.test(post) || /[\/:@_]/.test(pre + post) || (pre === '.' && /\p{L}/u.test(str[off - 2] || '')) || (post === '.' && /\p{L}/u.test(str[off + tok.length + 1] || ''))) return tok;   // número, endereço ou e-mail
       if (tok === tok.toUpperCase() || /[-'’]/.test(tok) || dict.known(tok)) return tok;       // sigla, composta ou palavra conhecida
       const name = isCapital(tok);
       if (name && !low.has(tok)) return tok;                                                   // provável nome próprio

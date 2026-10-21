@@ -13,3 +13,4 @@ Embutidos no `index.html` gerado (arquivos em `vendor/`; textos de licença em `
 | [Tesseract.js](https://github.com/naptha/tesseract.js) | 5.1.1 | Apache 2.0 |
 | [tesseract.js-core](https://github.com/naptha/tesseract.js-core) (Tesseract compilado para WebAssembly) | 5.1.1 | Apache 2.0 |
 | [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) (idiomas `por` e `eng`) | 4.1.0 | Apache 2.0 |
+| [VERO](https://github.com/wooorm/dictionaries/tree/main/dictionaries/pt) (dicionário ortográfico pt-BR do Hunspell, via `dictionary-pt`) | 4.0.0 | LGPL 3.0 ou MPL 2.0 |

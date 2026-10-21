@@ -27,6 +27,8 @@ const Ocr = (() => {
     for (const l of lines) {
       let w = (l.words || []).map(x => ({ t: (x.text || '').trim(), c: x.confidence == null ? 100 : x.confidence })).filter(x => x.t);
       if (!w.length) { const t = (l.text || '').replace(/\s+/g, ' ').trim(); w = t ? t.split(' ').map(x => ({ t: x, c: l.confidence == null ? 100 : l.confidence })) : []; }
+      while (w.length && /^[|¦!\\/]+$/.test(w[0].t)) w.shift();           // barra de margem lida como letra no começo da linha
+      if (w.length) w[0].t = w[0].t.replace(/^[|¦]+/, '');
       const t = w.map(x => x.t).join(' ');
       if (!t || !/[\p{L}\p{N}]/u.test(t)) continue;
       const len = w.reduce((s, x) => s + x.t.length, 0), c = w.reduce((s, x) => s + x.c * x.t.length, 0) / len;
