@@ -116,6 +116,7 @@
     </select>
     <label for="mPanels">Painéis (duplo toque amplia um pedaço da página)</label>
     <select id="mPanels">
+      <option value="auto">Detectar os quadrinhos da página</option>
       <option value="4">4 painéis por página (ampliação maior)</option>
       <option value="2">2 painéis por página (metades de cima e de baixo)</option>
       <option value="0">Sem painéis (só a página inteira)</option>
@@ -2597,7 +2598,7 @@ ${spine.join('\n')}
       say, tick,
       dev: Manga.deviceById($('mDev').value),
       rtl: $('mDir').value === 'rtl',
-      panels: +$('mPanels').value,
+      panels: $('mPanels').value === 'auto' ? 'auto' : +$('mPanels').value,
       split: $('mSplit').checked,
       crop: $('mCrop').checked,
       level: $('mLevel').checked,
@@ -2641,7 +2642,9 @@ ${spine.join('\n')}
         name += '.' + M.ext;
         const url = URL.createObjectURL(new Blob([r.bytes], { type: M.mime }));
         results.push({ name, url, bytes: r.bytes, mime: M.mime });
-        const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}` : `${r.pages} páginas`;
+        const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}`
+          : `${r.pages} páginas${r.detected ? ` · quadrinhos detectados em ${r.detected}` : ''}` +
+            (r.looksLikeText ? ' · parece texto corrido, não quadrinho: a aba Para Kindle fica bem melhor' : '');
         setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}${r.fixed ? ` · ${r.fixed} palavra(s) corrigida(s) pelo dicionário` : ''}${r.uncertain ? ` · ${r.uncertain} palavra(s) que o OCR leu com pouca certeza: vale revisar` : ''}`, 'ok', { name, url });
       } catch (e) {
         console.error(e);
