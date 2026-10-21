@@ -18,6 +18,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
 | **Mangá** (PDF escaneado → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
 | **Escaneado → PDF** (OCR no navegador, no padrão do EPUB → PDF) | disponível |
+| **Simular no Kindle** (abre AZW3, KFX, EPUB ou PDF numa tela de Kindle, sem converter) | disponível |
 | **PDF escaneado → PDF** pela linha de comando (`tools/scan2pdf.py`, OCR com ocrmypdf no computador) | disponível |
 
 ## EPUB → PDF
@@ -127,7 +128,9 @@ O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8) e KFX. Esta aba
 
 ### Simulador de Kindle
 
-Depois de converter, cada AZW3, KFX, EPUB ou PDF gerado ganha **Simular no Kindle** (na lista ou, quando sai um arquivo só, como no Juntar, ao lado do botão de baixar): o arquivo é aberto no próprio navegador e mostrado numa tela do aparelho, sem sair do seu aparelho.
+Para ver um arquivo que você já tem, use a aba **Simular no Kindle** (ou `#simular` no fim do endereço): escolha um AZW3, KFX, EPUB ou PDF e ele abre direto no simulador. Livros comprados na Amazon (com DRM) não abrem.
+
+Depois de converter, cada AZW3, KFX, EPUB ou PDF gerado também ganha **Simular no Kindle** (na lista ou, quando sai um arquivo só, como no Juntar, ao lado do botão de baixar): o arquivo é aberto no próprio navegador e mostrado numa tela do aparelho, sem sair do seu aparelho.
 
 - **Mangá (layout fixo):** as páginas e o Panel View saem do arquivo de verdade, lidos dele e não recalculados: as áreas de toque (numeradas na ordem de leitura com **Áreas de toque**), o quadro ampliado e a máscara em volta dele. Um toque amplia, **▶** caminha para o próximo quadro e, depois do último, para a próxima página; **Esc** ou um toque fora volta à página inteira. O tamanho da tela é o do aparelho escolhido na conversão.
 - **Tela e-ink:** a tela do simulador mostra só os 16 tons de cinza do Kindle (o Colorsoft, colorido, não é simulado).

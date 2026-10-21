@@ -240,3 +240,33 @@ test('Kindle.open com EPUB 2: sumário do toc.ncx, OPF fora de OEBPS/, capa e fo
   const bad = await page.evaluate(async () => { try { await Kindle.open(new Uint8Array([0x50, 0x4b, 3, 4, 0, 0])); } catch (e) { return e.message; } });
   expect(bad).toBe('não é um EPUB (o ZIP não abre).');
 });
+
+test('aba Simular no Kindle: escolher o arquivo já abre o simulador, de qualquer formato', async ({ page }) => {
+  await page.goto('about:blank'); await page.goto((process.env.COVERAGE ? 'cobertura.html' : 'index.html') + '#simular');
+  await expect(page.locator('.tabs button[data-mode="sim"]')).toHaveClass(/on/);
+  expect(await page.locator('#file').getAttribute('accept')).toBe('.azw3,.kfx,.epub,.pdf,.mobi,.azw');
+  await page.setInputFiles('#file', [A.file('livro.epub', await A.makeEpub({ chapters: [TEXTO] }))]);
+  await expect(page.locator('#sim')).toBeVisible();
+  await expect(page.locator('#simTitle')).toHaveText('o nome do vento · Patrick Rothfuss (EPUB)');
+  await page.click('#simClose');
+  await expect(page.locator('#go')).toHaveText('Abrir no simulador');
+  await page.click('#go');                                            // reabre o mesmo arquivo
+  await expect(page.locator('#sim')).toBeVisible();
+  await page.click('#simClose');
+  await page.setInputFiles('#file', [A.file('paginas.pdf', await A.makeNumberedPdf(3))]);
+  await expect(page.locator('#simCount')).toHaveText('1 / 3');
+  await expect(page.locator('#simTitle')).toHaveText('paginas (PDF)');   // sem título no PDF: o nome do arquivo
+  await page.click('#simClose');
+  await page.setInputFiles('#file', [A.file('x.azw3', Buffer.from('nada disso'))]);
+  await expect(page.locator('#status')).toHaveText(/^Não consegui abrir no simulador: /);
+  await expect(page.locator('#sim')).toBeHidden();
+});
+
+test('aba Simular no Kindle: abre o AZW3 de mangá baixado de outra conversão', async ({ page }) => {
+  const comic = await A.comicPage(page, { layout: MANGA });
+  const [out] = await run(page, 'manga', [A.file('volume 1.pdf', await A.makeImagePdf([comic], { size: [400, 600] }))]);
+  await page.click('.tabs button[data-mode="sim"]');
+  await page.setInputFiles('#file', [A.file(out.name, out.buf)]);
+  await expect(page.locator('#simCount')).toHaveText('1 / 1');
+  await expect(page.locator('.khit')).toHaveCount(5);
+});

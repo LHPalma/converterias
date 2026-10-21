@@ -99,6 +99,7 @@
     <button type="button" data-mode="kindle">Para Kindle</button>
     <button type="button" data-mode="manga">Mangá</button>
     <button type="button" data-mode="ocr">Escaneado → PDF</button>
+    <button type="button" data-mode="sim">Simular no Kindle</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -314,13 +315,15 @@
            note: 'Faz OCR do PDF escaneado no próprio aparelho e gera um PDF com a mesma diagramação do EPUB → PDF: parágrafos, capítulos (pelos cabeçalhos das páginas), ilustrações como imagem e capa. Na primeira vez baixa o motor de OCR (cerca de 6 MB), que depois fica guardado para uso offline. É lento (alguns segundos por página; no celular, bem mais) e consome memória: prefira um livro por vez. Erros de reconhecimento continuam no texto. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
+    sim: { pick: 'Toque para escolher um AZW3, KFX, EPUB ou PDF', accept: '.azw3,.kfx,.epub,.pdf,.mobi,.azw', ext: '', mime: '', many: '',
+           note: 'Abre o livro numa tela de Kindle, sem converter nada: AZW3 e KFX como o aparelho mostra (mangá com os quadros do Panel View), EPUB como chega pelo Enviar para Kindle, PDF como fica copiado por cabo. Dá para trocar o aparelho, a fonte, as margens e o espaçamento. É uma aproximação: o Kindle usa o motor e as fontes dele. Livros comprados na Amazon (com DRM) não abrem.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
              note: 'Junta vários PDFs em um PDF, ou vários EPUBs em um EPUB, na ordem da lista. O PDF ganha um marcador por arquivo (com os marcadores originais dentro); o EPUB ganha um sumário com um item por livro. Dá para escolher arquivos de pastas diferentes em várias vezes.' },
   };
   const syncOcrOpts = () => { $('optOCR').hidden = !(mode === 'ocr' || ((mode === 'p2e' || mode === 'kindle') && $('pOcr').checked)); };
   const kFmt = () => (($('kFmt') || {}).value || 'azw3');
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : location.hash === '#simular' ? 'sim' : 'e2p';
   Manga.DEVICES.forEach((d, i) => $('mDev').add(new Option(d.label, d.id, !i, !i)));
 
   let cancelled = false;
@@ -361,9 +364,10 @@
   };
   const pickFiles = list => {
     files = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    if (mode === 'org') files = files.slice(0, 1);
+    if (mode === 'org' || mode === 'sim') files = files.slice(0, 1);
     showFiles();
     if (mode === 'org' && files.length) orgLoad(files[0]);
+    if (mode === 'sim' && files.length) runSim();   // escolheu, já abre
   };
   fileEl.addEventListener('change', () => {
     if (!ordered(mode)) return pickFiles(fileEl.files);
@@ -386,7 +390,7 @@
     go.style.display = m === 'org' ? 'none' : '';   // no Organizar, os botões de salvar ficam junto das páginas
     if (m === 'org') $('orgOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
     listEl.hidden = m === 'org'; orgReset();
-    go.textContent = m === 'merge' ? 'Juntar' : m === 'i2p' ? 'Criar PDF' : 'Converter';
+    go.textContent = m === 'merge' ? 'Juntar' : m === 'i2p' ? 'Criar PDF' : m === 'sim' ? 'Abrir no simulador' : 'Converter';
     fileEl.accept = MODES[m].accept; fileEl.value = '';
     $('note').textContent = MODES[m].note;
     files = []; showFiles();
@@ -395,7 +399,7 @@
   $('kFmt').addEventListener('change', () => { $('note').textContent = MODES[mode].note; showFiles(); });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado', sim: '#simular' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -2803,7 +2807,7 @@ ${spine.join('\n')}
     catch (e) { console.error(e); say('Não consegui abrir no simulador: ' + (e.message || e), true); return; }
     const b = sim.book;
     Object.assign(sim, { page: 0, panel: -1, chap: 0, sub: 0, zoom: 1 });
-    $('simTitle').textContent = `${b.title || stem(name || 'Livro')}${b.authors.length ? ' · ' + b.authors.join(', ') : ''} (${b.kind.toUpperCase()})`;
+    $('simTitle').textContent = `${b.title || (name || 'Livro').replace(/\.[^.]+$/, '')}${b.authors.length ? ' · ' + b.authors.join(', ') : ''} (${b.kind.toUpperCase()})`;
     $('simDev').hidden = b.fixed && !b.pdf;   // layout fixo: o tamanho da tela vem do próprio arquivo (o PDF se ajusta ao aparelho)
     $('simSmaller').hidden = $('simBigger').hidden = $('simFont').hidden = $('simMargin').hidden = $('simSpace').hidden = b.fixed;
     $('simFont').value = b.hasFonts ? 'editor' : 'serif';   // como o Kindle: com fontes embutidas, começa na fonte do editor
@@ -2957,7 +2961,14 @@ ${spine.join('\n')}
     else if (e.key === 'Escape' && sim.book.fixed && sim.panel >= 0) { e.preventDefault(); sim.panel = -1; simRender(); }
   });
 
-  go.addEventListener('click', () => ({ merge: runMerge, i2p: runImagesToPdf, p2i: runPdfToImages }[mode] || runBatch)());
+  // aba Simular: abre o arquivo escolhido direto no simulador
+  async function runSim() {
+    const f = files[0]; if (!f) return;
+    say('Abrindo…');
+    await simOpen(new Uint8Array(await f.arrayBuffer()), f.name);
+    if (simEl.open) say('');
+  }
+  go.addEventListener('click', () => ({ merge: runMerge, i2p: runImagesToPdf, p2i: runPdfToImages, sim: runSim }[mode] || runBatch)());
   // funções internas, para os testes automáticos (tests/unidade); o app não usa
   window.__converterias = { titleCase, cleanAuthors, makeName, resolve, buildBlocks, modeOf, composeAcc, guessLang, findGutters, clusterLines,
     buildRuns, finalizeLines, pageLines, drawnShapes, figureRegions, shapeVec, shapeCorr, kindOf, guessTitle, pdfOutline, writeOutline, jpegInfo,
