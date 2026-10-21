@@ -17,6 +17,8 @@ const Ocr = (() => {
     return 2 * hit / (a.length - 1 + b.length - 1);
   };
 
+  const URL_OPEN = /(?:https?:\/\/|www\.|\bh[rt][tcp]{1,2}s?:\/\/)\S*$/i;   // parágrafo que termina no meio de um endereço
+  const fixUrls = t => t.replace(/\bh[rt][tcp]{1,2}s?:\/\//gi, m => /^https?:/i.test(m) ? m : 'https://');   // "hrtps://" -> "https://"
   const LOW_WORD = 70;    // palavra com confiança abaixo disso é "duvidosa"
   const JUNK_LINE = 60;   // linha cuja confiança média (ponderada pelo tamanho) fica abaixo disso é lixo do OCR
 
@@ -88,6 +90,48 @@ const Ocr = (() => {
         for (let j = op - 1; run.includes(j) && this.p[j].ink > .18 && this.p[j].ink < .5; j--) c.start = j + 1;   // ilustração colada
       });
       chs.forEach((c, k) => { c.end = k + 1 < chs.length ? chs[k + 1].start - 1 : last; });
+      return this.labelChapters(this.splitNotes(chs));
+    }
+
+    /* "Notas e Referências" / "Referências" / "Bibliografia" no topo de uma página viram capítulo próprio */
+    splitNotes(chs) {
+      const NOTES = /^(notas( e referencias)?|referencias( bibliograficas)?|bibliografia)$/, out = [];
+      for (const c of chs) {
+        let cut = null;
+        for (let pg = c.start + 1; pg <= c.end && !cut; pg++) {
+          const top = this.bodyRows(pg - 1, true).slice(0, 3).find(r => r.t.length < 40 && NOTES.test(norm(r.t)));
+          if (top) cut = { pg, title: top.t.replace(/[.\s]+$/, '') };
+        }
+        if (!cut) { out.push(c); continue; }
+        out.push({ ...c, end: cut.pg - 1 }, { title: cut.title, start: cut.pg, end: c.end, opener: cut.pg });
+      }
+      return out;
+    }
+
+    /* "Capítulo N" lido do Sumário impresso: [{ label, title }] */
+    tocEntries() {
+      const out = [];
+      for (let i = 0; i < Math.min(this.p.length, 14); i++) {
+        const rows = this.p[i].rows, h = rows.findIndex(r => norm(r.t) === 'sumario');
+        if (h < 0) continue;
+        for (let k = h + 1; k < rows.length; k++) {
+          const m = /^cap[ií]tulo\s*(\d+|[IVXLC]+)\b[\s:.-]*(.*)$/i.exec(rows[k].t.trim());
+          if (!m) continue;
+          let title = m[2].trim();
+          if (norm(title).length < 3 && rows[k + 1]) title = rows[k + 1].t;
+          out.push({ label: 'Capítulo ' + m[1], title: title.replace(/[.\s…·_-]{2,}\s*\d*\s*$/, '').replace(/\s+\d+$/, '').trim() });
+        }
+        if (out.length) break;
+      }
+      return out;
+    }
+    labelChapters(chs) {
+      const toc = this.tocEntries(), used = new Set();
+      for (const e of toc) {
+        let best = -1, bs = 0;
+        chs.forEach((c, k) => { if (used.has(k)) return; const d = dice(norm(c.title), norm(e.title)); if (d > bs) { bs = d; best = k; } });
+        if (best >= 0 && bs >= .45) { chs[best].label = e.label; used.add(best); }
+      }
       return chs;
     }
 
@@ -104,7 +148,10 @@ const Ocr = (() => {
           if (cur == null) np = true;
           else if (!prev) np = x.x0 > L + 10 || lastShort;                  // começo de página
           else np = x.x0 > L + 10 || prev.x1 < R - 35;
-          if (np) { flush(); cur = x.t; }
+          if (cur != null && URL_OPEN.test(cur) && !/^\d{1,3}\s+\S/.test(x.t)) {   // endereço quebrado no fim da linha: continua sem espaço
+            const m = /^(\S+)([\s\S]*)$/.exec(x.t); cur += m[1] + m[2];
+          }
+          else if (np) { flush(); cur = x.t; }
           else if (cur.endsWith('-') && /^\p{Ll}/u.test(x.t)) cur = cur.slice(0, -1) + x.t;   // hifenização de fim de linha
           else cur += ' ' + x.t;
           prev = x;
@@ -151,7 +198,7 @@ const Ocr = (() => {
     };
     const stats = { fixed: [] }, low = new Set();
     if (meta.spell) for (const pg of pages) for (const r of pg.rows) for (const x of r.w) if (x.c < LOW_WORD) low.add(x.t.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ''));
-    const clean = t => { t = t.replace(/--/g, '-').replace(/\s*[|¦]\s*/g, ' ').trim(); return meta.spell ? Spell.fixText(t, meta.spell, low, stats) : t; };
+    const clean = t => { t = fixUrls(t).replace(/--/g, '-').replace(/\s*[|¦]\s*/g, ' ').trim(); return meta.spell ? Spell.fixText(t, meta.spell, low, stats) : t; };
     let cn = 0;
     for (const c of chapters) {
       if (tick) await tick(`Montando o capítulo ${++cn} de ${chapters.length}…`);
@@ -170,9 +217,9 @@ const Ocr = (() => {
       const blocks = book.paragraphs(sect, openers), fig = async b => `<p class="fig"><img src="${await addImg(b.i)}" alt=""/></p>`;
       let body = '';
       while (blocks.length && blocks[0].t === 'img') body += await fig(blocks.shift());   // ilustração de abertura vem antes do título
-      body += `<h1>${esc(c.title)}</h1>`;
+      body += c.label ? `<h1>${esc(c.label)}</h1><h2>${esc(c.title)}</h2>` : `<h1>${esc(c.title)}</h1>`;
       for (const b of blocks) body += b.t === 'p' ? `<p>${esc(clean(b.text))}</p>` : await fig(b);
-      files.push({ name: `c${String(files.length + 1).padStart(2, '0')}.xhtml`, title: c.title, body });
+      files.push({ name: `c${String(files.length + 1).padStart(2, '0')}.xhtml`, title: c.label ? `${c.label} – ${c.title}` : c.title, body });
     }
     const X = '<?xml version="1.0" encoding="utf-8"?>\n', lang = meta.lang || 'pt-BR';
     const page = (t, b) => X + `<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${lang}" lang="${lang}"><head><title>${esc(t)}</title></head><body>${b}</body></html>`;
@@ -195,3 +242,4 @@ const Ocr = (() => {
 
   return { PT_W, LOW_WORD, rowsFromLines, countLow, buildEpub, Book };
 })();
+if (typeof module !== 'undefined') module.exports = Ocr;
