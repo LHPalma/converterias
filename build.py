@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Gera o index.html (arquivo único, offline) a partir de src/template.html + vendor/."""
-import base64, json, pathlib
+"""Gera o index.html (arquivo único, offline) a partir de src/template.html + vendor/.
+
+Com --check, não grava nada: só confere se o index.html do repositório está igual ao que seria gerado."""
+import base64, json, pathlib, sys
 
 root = pathlib.Path(__file__).parent
 v = root / "vendor"
@@ -26,5 +28,10 @@ html = html.replace("/*MANGA*/", esc((root / "src" / "manga.js").read_text(encod
 html = html.replace("/*FONTS*/{}", json.dumps(fonts))
 
 out = root / "index.html"
+if "--check" in sys.argv:
+    if out.read_text(encoding="utf-8") != html:
+        sys.exit("index.html está desatualizado: rode python3 build.py e faça commit do resultado.")
+    print("index.html em dia com src/ e vendor/.")
+    sys.exit(0)
 out.write_text(html, encoding="utf-8")
 print(f"{out} ({out.stat().st_size / 1024:.0f} KB)")

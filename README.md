@@ -186,6 +186,24 @@ python3 build.py   # gera index.html a partir de src/template.html + vendor/
 
 Para publicar: *Settings → Pages → Deploy from a branch → `main` / root*.
 
+### Testes
+
+Testes de regressão com [Playwright](https://playwright.dev): o app em si continua sem Node, isso é só para desenvolver.
+
+```bash
+npm install
+npx playwright install chromium   # uma vez
+npm test                          # confere o index.html e roda todos os testes (~40 s)
+npx playwright test -g "Kindle"   # só os testes cujo nome tem "Kindle"
+```
+
+- `python3 build.py --check` falha se o `index.html` não foi regenerado depois de mexer em `src/`.
+- `tests/conversores.spec.js`: ponta a ponta. Abre o `index.html` no Chromium (por HTTP, como no GitHub Pages), passa por cada aba arquivos gerados na hora (EPUB, PDF de texto, PDF de imagens, página "escaneada") e abre a saída para conferir: nome do arquivo, metadados, páginas, tamanho, rotação, capítulos, cabeçalhos do AZW3/KFX, texto lido pelo OCR. Também falha se a página tiver qualquer erro de JavaScript.
+- `tests/modulos.spec.js`: unitários, em Node puro: corretor ortográfico, reconstrução do OCR, compressão PalmDOC do AZW3 (ida e volta), SHA-1 do KFX.
+- `tests/helpers.js`: geradores dos arquivos de entrada e leitores das saídas.
+
+O GitHub Actions (`.github/workflows/testes.yml`) roda tudo em cada push na `main` e em cada pull request; se falhar, o relatório fica nos artefatos da execução. Ao corrigir um bug, vale acrescentar um teste que o reproduz.
+
 ## Aviso
 
 Use apenas com livros que você tem direito de converter. O projeto não inclui nem distribui livros.
