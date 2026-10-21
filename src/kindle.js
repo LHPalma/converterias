@@ -2,6 +2,7 @@
 // O AZW3 é remontado como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, fluxos de CSS e SVG, recursos);
 // o layout fixo (mangá) vira páginas com as áreas de toque e os quadros ampliados do Panel View.
 // O KFX é decodificado do Amazon Ion (seções, blocos de texto, imagens e sumário).
+// EPUB (Enviar para Kindle) vira capítulos com o CSS e as imagens do livro; PDF vira páginas inteiras, reduzidas à tela.
 const Kindle = (() => {
   const dec = new TextDecoder();
   const u16 = (b, o) => (b[o] << 8) | b[o + 1];
@@ -259,10 +260,114 @@ const Kindle = (() => {
     });
   }
 
+  // ---------- EPUB: o que o Kindle recebe pelo Enviar para Kindle (ele converte, mas a diagramação vem do XHTML e do CSS) ----------
+  const join = (base, rel) => { try { return decodeURIComponent(new URL(rel, 'http://x/' + base).pathname.slice(1)); } catch (e) { return rel; } };
+  const xml = (s, type) => { const d = new DOMParser().parseFromString(s, type || 'application/xhtml+xml'); return d.getElementsByTagName('parsererror').length && type !== 'text/html' ? xml(s, 'text/html') : d; };
+  const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp', ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2', css: 'text/css' };
+  async function readEpub(buf) {
+    let zip;
+    try { zip = await JSZip.loadAsync(buf); } catch (e) { throw new Error('não é um EPUB (o ZIP não abre).'); }
+    const text = p => { const f = zip.file(p); return f ? f.async('string') : Promise.resolve(null); };
+    const cont = await text('META-INF/container.xml');
+    const opfPath = cont && (/full-path="([^"]+)"/.exec(cont) || [])[1];
+    const opfText = opfPath && await text(opfPath);
+    if (!opfText) throw new Error('não é um EPUB (falta o content.opf).');
+    const opf = xml(opfText, 'application/xml'), tag = (d, n) => [...d.getElementsByTagNameNS('*', n)];
+    const items = new Map(tag(opf, 'item').map(i => [i.getAttribute('id'), { href: join(opfPath, i.getAttribute('href') || ''), type: i.getAttribute('media-type') || '', props: i.getAttribute('properties') || '' }]));
+    const spine = tag(opf, 'itemref').map(r => items.get(r.getAttribute('idref'))).filter(i => i && /html/.test(i.type));
+    const fileOf = href => { const k = spine.findIndex(s => s.href === href.split('#')[0]); return k < 0 ? 0 : k; };
+    const entry = (title, depth, base, href) => { const [f, id] = href.split('#'); return { title, depth, file: fileOf(join(base, f)), id: id ? decodeURIComponent(id) : null }; };
+    const dc = n => tag(opf, n).map(e => e.textContent.trim()).filter(Boolean);
+    const toc = [], walk = (ol, depth, base) => { for (const li of [...ol.children].filter(e => e.localName === 'li')) {
+      const a = [...li.children].find(e => e.localName === 'a' || e.localName === 'span'), sub = [...li.children].find(e => e.localName === 'ol');
+      if (a && a.getAttribute('href')) toc.push(entry(a.textContent.replace(/\s+/g, ' ').trim(), depth, base, a.getAttribute('href')));
+      if (sub) walk(sub, depth + 1, base);
+    } };
+    const nav = [...items.values()].find(i => /\bnav\b/.test(i.props)), navDoc = nav && await text(nav.href);
+    const navEl = navDoc && tag(xml(navDoc), 'nav').find(n => (n.getAttribute('epub:type') || n.getAttributeNS('http://www.idpf.org/2007/ops', 'type') || '') === 'toc');
+    const navOl = navEl && [...navEl.getElementsByTagNameNS('*', 'ol')][0];
+    if (navOl) walk(navOl, 0, nav.href);
+    else {   // EPUB 2: toc.ncx
+      const ncx = items.get((tag(opf, 'spine')[0] || { getAttribute: () => null }).getAttribute('toc')) || [...items.values()].find(i => i.type === 'application/x-dtbncx+xml');
+      const ncxText = ncx && await text(ncx.href);
+      const pts = (el, depth) => { for (const p of [...el.children].filter(e => e.localName === 'navPoint')) {
+        const label = tag(p, 'text')[0], c = tag(p, 'content')[0];
+        if (label && c) toc.push(entry(label.textContent.trim(), depth, ncx.href, c.getAttribute('src') || ''));
+        pts(p, depth + 1);
+      } };
+      const map = ncxText && tag(xml(ncxText, 'application/xml'), 'navMap')[0];
+      if (map) pts(map, 0);
+    }
+    const coverId = (tag(opf, 'meta').find(m => m.getAttribute('name') === 'cover') || { getAttribute: () => null }).getAttribute('content');
+    const cover = [...items.values()].find(i => /\bcover-image\b/.test(i.props)) || items.get(coverId);
+    const spineEl = tag(opf, 'spine')[0];
+    return { kind: 'epub', zip, items, spine, toc, title: dc('title')[0] || 'Livro', authors: dc('creator'), rtl: !!spineEl && spineEl.getAttribute('page-progression-direction') === 'rtl',
+      fixed: false, coverHref: cover && cover.href, hasFonts: [...items.values()].some(i => /font|opentype|truetype/.test(i.type) || /\.(ttf|otf|woff2?)$/i.test(i.href)) };
+  }
+  async function epubChapters(book, blob) {
+    const res = async (href, type) => { const f = book.zip.file(href); if (!f) return ''; const ext = (/\.(\w+)$/.exec(href) || [])[1] || ''; return blob(href, await f.async('uint8array'), type || MIME[ext.toLowerCase()] || 'application/octet-stream'); };
+    const cssCache = new Map();
+    const cssUrls = async (css, base) => {   // url(...) do CSS (fontes, fundos) relativos ao arquivo do CSS
+      const out = [], re = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g; let m, last = 0;
+      while ((m = re.exec(css))) { out.push(css.slice(last, m.index), /^(data:|https?:|blob:)/.test(m[2]) ? m[0] : `url("${await res(join(base, m[2]))}")`); last = re.lastIndex; }
+      return out.join('') + css.slice(last);
+    };
+    const sheet = async href => { if (!cssCache.has(href)) { const f = book.zip.file(href); cssCache.set(href, f ? await cssUrls(await f.async('string'), href) : ''); } return cssCache.get(href); };
+    const out = [];
+    for (const it of book.spine) {
+      const f = book.zip.file(it.href), d = xml(f ? await f.async('string') : '<html xmlns="http://www.w3.org/1999/xhtml"><body/></html>');
+      const css = [];
+      for (const el of d.querySelectorAll('link, style')) {
+        if (el.localName === 'style') css.push(await cssUrls(el.textContent, it.href));
+        else if (/stylesheet/i.test(el.getAttribute('rel') || '')) css.push(await sheet(join(it.href, el.getAttribute('href') || '')));
+      }
+      for (const el of d.querySelectorAll('[src]')) { const s = el.getAttribute('src'); if (!/^(data:|https?:|blob:)/.test(s)) el.setAttribute('src', await res(join(it.href, s))); }
+      for (const el of d.getElementsByTagNameNS('*', 'image')) {   // <image> do SVG (capa, ilustrações)
+        const XL = 'http://www.w3.org/1999/xlink', s = el.getAttributeNS(XL, 'href') || el.getAttribute('href');
+        if (s && !/^(data:|https?:|blob:)/.test(s)) { const u = await res(join(it.href, s)); el.setAttribute('href', u); if (el.hasAttributeNS(XL, 'href')) el.setAttributeNS(XL, 'xlink:href', u); }
+      }
+      for (const el of d.querySelectorAll('[style]')) if (/url\(/.test(el.getAttribute('style'))) el.setAttribute('style', await cssUrls(el.getAttribute('style'), it.href));
+      const body = d.querySelector('body');
+      out.push({ css: css.join('\n'), html: body ? body.innerHTML : '', attrs: body ? [...body.attributes].map(a => ` ${a.name}="${a.value.replace(/"/g, '&quot;')}"`).join('') : '' });
+    }
+    return out;
+  }
+
+  // ---------- PDF: o Kindle mostra a página inteira, reduzida para caber na tela (sem refluxo do texto) ----------
+  async function openPdf(b, urls) {
+    let doc;
+    try { doc = await pdfjsLib.getDocument({ data: b.slice(), isEvalSupported: false }).promise; } catch (e) { throw new Error('não consegui ler este PDF.'); }
+    const info = await doc.getMetadata().catch(() => ({ info: {} })), I = info.info || {};
+    const toc = [];
+    const walk = async (list, depth) => { for (const o of list || []) {
+      let page = 0;
+      try { const dest = typeof o.dest === 'string' ? await doc.getDestination(o.dest) : o.dest; if (dest && dest[0]) page = typeof dest[0] === 'number' ? dest[0] : await doc.getPageIndex(dest[0]); } catch (e) { /* destino quebrado: primeira página */ }
+      toc.push({ title: (o.title || '').trim(), depth, page }); await walk(o.items, depth + 1);
+    } };
+    await walk(await doc.getOutline().catch(() => null), 0);
+    const cache = new Map();
+    // desenha a página do tamanho da tela (W × H) e devolve o URL da imagem e a caixa onde ela fica
+    const render = async (k, W, H) => {
+      const key = k + ':' + W + 'x' + H;
+      if (!cache.has(key)) cache.set(key, (async () => {
+        const pg = await doc.getPage(k + 1), v1 = pg.getViewport({ scale: 1 }), s = Math.min(W / v1.width, H / v1.height), vp = pg.getViewport({ scale: s });
+        const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+        const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+        await pg.render({ canvasContext: cx, viewport: vp }).promise;
+        const u = URL.createObjectURL(await new Promise(r => cv.toBlob(r, 'image/png'))); urls.push(u);
+        return { src: u, box: { x: (1 - cv.width / W) / 2, y: (1 - cv.height / H) / 2, w: cv.width / W, h: cv.height / H } };
+      })());
+      return cache.get(key);
+    };
+    return { kind: 'pdf', title: (I.Title || '').trim(), authors: I.Author ? [I.Author.trim()] : [], fixed: true, pdf: true, rtl: false, toc, cover: '', urls,
+      pages: Array.from({ length: doc.numPages }, () => ({ panels: [] })), render, close: () => { urls.forEach(u => URL.revokeObjectURL(u)); doc.destroy(); } };
+  }
+
   /* abre um livro: { kind, title, authors, fixed, rtl, toc, pages (layout fixo) | chapters (texto), urls (para liberar) } */
   async function open(bytes) {
     const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    const book = str(b, 0, 4) === 'CONT' ? readKfx(b) : readAzw3(b);
+    if (str(b, 0, 5) === '%PDF-') return openPdf(b, []);
+    const book = str(b, 0, 4) === 'CONT' ? readKfx(b) : str(b, 0, 2) === 'PK' ? await readEpub(b) : readAzw3(b);
     const urls = [], made = new Map();
     const blob = (key, data, type) => { if (!made.has(key)) { const u = URL.createObjectURL(new Blob([data], { type })); urls.push(u); made.set(key, u); } return made.get(key); };
     const url = key => {
@@ -278,16 +383,21 @@ const Kindle = (() => {
           const key = r.subarray(u32(r, 16), u32(r, 16) + u32(r, 20)), z = r.slice(u32(r, 12));
           for (let i = 0; i < Math.min(1040, z.length); i++) z[i] ^= key[i % key.length];
           const ttf = new Uint8Array(await new Response(new Blob([z]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
-          made.set(k + 1, blob('font' + k, ttf, 'font/ttf'));
+          made.set(k + 1, blob('font' + k, ttf, 'font/ttf')); book.hasFonts = true;
         } catch (e) { /* fonte ilegível: o Kindle usaria a dele */ }
       }
     }
-    const cover = book.kind === 'azw3' ? (book.cover != null ? url(book.cover + 1) : '') : (book.coverName ? url(book.coverName) : '');
-    const out = { kind: book.kind, title: book.title, authors: book.authors, fixed: book.fixed, rtl: book.rtl, toc: book.toc, cover, urls };
-    if (book.fixed) out.pages = fixedPages(book, url); else out.chapters = textChapters(book, url);
+    const out = { kind: book.kind, title: book.title, authors: book.authors, fixed: book.fixed, rtl: book.rtl, toc: book.toc, urls, hasFonts: !!book.hasFonts };
+    if (book.kind === 'epub') {
+      out.chapters = await epubChapters(book, blob);
+      out.cover = book.coverHref && made.get(book.coverHref) || '';
+    } else {
+      out.cover = book.kind === 'azw3' ? (book.cover != null ? url(book.cover + 1) : '') : (book.coverName ? url(book.coverName) : '');
+      if (book.fixed) out.pages = fixedPages(book, url); else out.chapters = textChapters(book, url);
+    }
     out.close = () => urls.forEach(u => URL.revokeObjectURL(u));
     return out;
   }
 
-  return { open, _readAzw3: readAzw3, _readKfx: readKfx, _palmDecompress: palmDecompress };
+  return { open, _readAzw3: readAzw3, _readKfx: readKfx, _readEpub: readEpub, _palmDecompress: palmDecompress };
 })();

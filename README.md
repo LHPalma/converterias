@@ -127,12 +127,14 @@ O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8) e KFX. Esta aba
 
 ### Simulador de Kindle
 
-Depois de converter, cada AZW3 ou KFX da lista ganha **Simular no Kindle**: o arquivo gerado é aberto no próprio navegador e mostrado numa tela do aparelho, sem sair do seu aparelho.
+Depois de converter, cada AZW3, KFX, EPUB ou PDF gerado ganha **Simular no Kindle** (na lista ou, quando sai um arquivo só, como no Juntar, ao lado do botão de baixar): o arquivo é aberto no próprio navegador e mostrado numa tela do aparelho, sem sair do seu aparelho.
 
 - **Mangá (layout fixo):** as páginas e o Panel View saem do arquivo de verdade, lidos dele e não recalculados: as áreas de toque (numeradas na ordem de leitura com **Áreas de toque**), o quadro ampliado e a máscara em volta dele. Um toque amplia, **▶** caminha para o próximo quadro e, depois do último, para a próxima página; **Esc** ou um toque fora volta à página inteira. O tamanho da tela é o do aparelho escolhido na conversão.
 - **Tela e-ink:** a tela do simulador mostra só os 16 tons de cinza do Kindle (o Colorsoft, colorido, não é simulado).
-- **Livro de texto (AZW3 e KFX):** o capítulo é paginado numa tela com a resolução do aparelho escolhido, com o CSS e as imagens do AZW3 (o KFX não leva o CSS do EPUB), sumário, letra maior/menor e toque nas bordas para virar a página. É uma **aproximação**: o Kindle diagrama com o motor e as fontes dele.
-- **Como funciona:** `src/kindle.js` remonta o AZW3 como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, fluxos de CSS e SVG, recursos e fontes) e decodifica o KFX do Amazon Ion.
+- **Livro de texto (AZW3, KFX e EPUB):** o capítulo é paginado numa tela com a resolução do aparelho escolhido, com o CSS e as imagens do livro (o KFX não leva o CSS do EPUB), sumário (que leva à tela da âncora, mesmo com vários capítulos no mesmo arquivo), letra maior/menor e toque nas bordas para virar a página. O EPUB é o que vai pelo **Enviar para Kindle**.
+- **Opções de leitura do Kindle:** fonte (*Fonte do editor*, que respeita o CSS do livro e é a inicial quando ele traz fontes embutidas; *Serifada*, no lugar da Bookerly, usando a serifada do próprio app para não depender das fontes do sistema; *Sem serifa*, no lugar da Amazon Ember), margens e espaçamento entre linhas (estreito/pequeno, normal/médio, largo/grande). O rodapé mostra o capítulo e a porcentagem lida, como no aparelho. É uma **aproximação**: o Kindle diagrama com o motor e as fontes dele.
+- **PDF:** como o Kindle mostra um PDF copiado por cabo: a página inteira, reduzida para caber na tela do aparelho escolhido, sem ajustar a letra; o sumário vem dos marcadores do PDF (o Juntar grava um por arquivo). Serve para ver se a letra fica legível antes de copiar; para letra ajustável, use **Para Kindle**.
+- **Como funciona:** `src/kindle.js` remonta o AZW3 como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, fluxos de CSS e SVG, recursos e fontes), decodifica o KFX do Amazon Ion, lê o EPUB (OPF, sumário do `nav` ou do `toc.ncx`, CSS, imagens e fontes pelos caminhos relativos) e desenha as páginas do PDF com o pdf.js.
 
 ### AZW3
 

@@ -132,3 +132,111 @@ test('arquivo que não abre no simulador dá aviso, sem travar', async ({ page }
   await expect(page.locator('#status')).toHaveText('Não consegui abrir no simulador: não é um AZW3 (falta o cabeçalho BOOKMOBI).');
   await expect(page.locator('#sim')).toBeHidden();
 });
+
+test('EPUB (Enviar para Kindle): capítulos com o CSS e as imagens do livro, sumário do nav, fonte, margens e espaçamento', async ({ page }) => {
+  const epub = await A.makeEpub({ chapters: [A.RICH_CHAPTER + '<p><img src="../img/a.png" alt=""/></p>', TEXTO, '<h1>Três</h1><p>fim</p>'], css: 'h1 { letter-spacing: .05em }', images: { 'img/a.png': A.ICON_BIG } });
+  await page.evaluate(b => window.__converterias.simOpen(Uint8Array.from(atob(b), c => c.charCodeAt(0)), 'livro.epub'), epub.toString('base64'));
+  await expect(page.locator('#simTitle')).toHaveText('o nome do vento · Patrick Rothfuss (EPUB)');
+  const frame = page.frameLocator('#simScreen iframe');
+  await expect(frame.locator('h1').first()).toHaveText('Capítulo Rico');
+  await expect(frame.locator('h1').first()).toHaveCSS('letter-spacing', /px/);   // o CSS do livro, achado pelo caminho relativo
+  await expect.poll(() => frame.locator('img[alt=""]').last().evaluate(i => i.complete && i.naturalWidth)).toBe(512);   // a imagem do livro, pelo caminho relativo
+  await expect(page.locator('#simToc option')).toHaveText([/Capítulo 1/, /Seção 1\.1/, /Capítulo 2/, /Capítulo 3/]);
+  // sem fontes embutidas, o Kindle começa na serifada dele
+  await expect(page.locator('#simFont')).toHaveValue('serif');
+  await expect(frame.locator('p').first()).toHaveCSS('font-family', /Kindle Serif/);
+  await expect(page.locator('#simScreen .kfoot')).toHaveText(/Capítulo 1\s*\d+%$/);
+  await page.selectOption('#simToc', { label: 'Capítulo 2' });
+  const telas = async () => +(/tela \d+ de (\d+)/.exec(await page.locator('#simHint').innerText())[1]);
+  const pct = async () => +(/(\d+)%$/.exec(await page.locator('#simScreen .kfoot').innerText())[1]);
+  const base = await telas(), p1 = await pct();
+  await page.click('#simNext');
+  expect(await pct()).toBeGreaterThan(p1);                          // a porcentagem lida anda com as telas
+  await page.selectOption('#simMargin', '2');
+  await expect.poll(telas).toBeGreaterThan(base);                  // margens largas: menos texto por tela
+  await page.selectOption('#simMargin', '1'); await expect.poll(telas).toBe(base);
+  await page.selectOption('#simSpace', '2');
+  await expect.poll(telas).toBeGreaterThan(base);                  // mais espaço entre linhas, idem
+  await page.selectOption('#simSpace', '1');
+  await page.selectOption('#simFont', 'sans');
+  await expect(frame.locator('p').first()).toHaveCSS('font-family', /Amazon Ember/);
+  await page.selectOption('#simFont', 'editor');
+  await expect(frame.locator('p').first()).not.toHaveCSS('font-family', /!important/);
+  await shot(page, 'epub-capitulo-2');
+  await page.selectOption('#simToc', { label: 'Capítulo 3' });
+  await expect(page.locator('#simScreen .kfoot')).toHaveText(/100%$/);
+});
+
+test('EPUB gerado pelo app (PDF → EPUB) abre no simulador pelo botão do resultado', async ({ page }) => {
+  await run(page, 'p2e', [A.file('livro.pdf', await A.makeTextPdf({ chapters: 3, paras: [A.LOREM.join(' ').repeat(3), A.LOREM.join(' ').repeat(3)] }))]);
+  await page.click('#list .sim');
+  await expect(page.locator('#simTitle')).toHaveText('Livro de Teste · Fulana de Tal (EPUB)');
+  const frame = page.frameLocator('#simScreen iframe');
+  await expect(frame.locator('.cover img')).toBeVisible();            // abre na capa, como o Kindle
+  await expect(page.locator('#simToc option')).toHaveText(['Capítulo 1', 'Capítulo 2', 'Capítulo 3']);
+  // os três capítulos estão no mesmo arquivo: o sumário leva à tela da âncora
+  await page.selectOption('#simToc', { label: 'Capítulo 3' });
+  const sub3 = +(/tela (\d+)/.exec(await page.locator('#simHint').innerText())[1]);
+  expect(sub3).toBeGreaterThan(1);
+  await expect(page.locator('#simToc')).toHaveValue('2');
+  await expect(page.locator('#simScreen .kfoot')).toHaveText(/^Capítulo 3/);
+  await page.selectOption('#simToc', { label: 'Capítulo 1' });
+  await expect(page.locator('#simHint')).toHaveText(/tela 1 de/);
+});
+
+test('PDF: página inteira reduzida à tela do aparelho, sumário do PDF e troca de aparelho', async ({ page }) => {
+  await run(page, 'e2p', [A.file('livro.epub', await A.makeEpub({ chapters: [A.RICH_CHAPTER, TEXTO, '<h1>Três</h1><p>fim</p>'] }))]);
+  await page.click('#list .sim');
+  await expect(page.locator('#simTitle')).toHaveText(/\(PDF\)$/);
+  await expect(page.locator('#simDev')).toBeVisible();                // a tela é a do aparelho escolhido
+  await expect(page.locator('#simFont')).toBeHidden();               // PDF não reflui: sem opções de letra
+  await expect(page.locator('#simAreas')).toBeHidden();
+  const img = page.locator('#simScreen > img');
+  await expect(img).toHaveJSProperty('complete', true);
+  const box = async () => img.evaluate(i => { const r = i.getBoundingClientRect(), s = i.parentElement.getBoundingClientRect(); return { w: r.width / s.width, h: r.height / s.height }; });
+  const b = await box();
+  expect(Math.max(b.w, b.h)).toBeGreaterThan(0.99);                  // cabe na tela, encostando num dos lados
+  const total = +(/\/ (\d+)/.exec(await page.locator('#simCount').innerText())[1]);
+  expect(total).toBeGreaterThan(2);
+  await expect(page.locator('#simHint')).toHaveText(/página inteira reduzida/);
+  await shot(page, 'pdf-pagina-1');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#simCount')).toHaveText(`2 / ${total}`);
+  await page.locator('.kturn').nth(0).click();
+  await expect(page.locator('#simCount')).toHaveText(`1 / ${total}`);
+  await expect(page.locator('#simToc')).toBeHidden();                 // o EPUB → PDF não grava marcadores
+  await page.selectOption('#simDev', 'k57');
+  expect(await page.locator('#simScreen').evaluate(e => getComputedStyle(e).aspectRatio)).toBe('600 / 800');
+  await expect(img).toHaveJSProperty('complete', true);
+  await shot(page, 'pdf-k57');
+});
+
+test('PDF com marcadores (Juntar): o sumário do simulador leva à página do marcador', async ({ page }) => {
+  await run(page, 'merge', [A.file('Parte 1.pdf', await A.makeNumberedPdf(3)), A.file('Parte 2.pdf', await A.makeNumberedPdf(2))]);
+  await page.click('#simBtn');
+  await expect(page.locator('#simCount')).toHaveText('1 / 5');
+  await expect(page.locator('#simToc option')).toHaveCount(2);
+  await page.selectOption('#simToc', '1');
+  await expect(page.locator('#simCount')).toHaveText('4 / 5');
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#simToc')).toHaveValue('0');            // voltou para a primeira parte
+});
+
+test('PDF ilegível no simulador dá aviso', async ({ page }) => {
+  await page.evaluate(() => window.__converterias.simOpen(new TextEncoder().encode('%PDF-1.7 lixo'), 'x.pdf'));
+  await expect(page.locator('#status')).toHaveText('Não consegui abrir no simulador: não consegui ler este PDF.');
+});
+
+test('Kindle.open com EPUB 2: sumário do toc.ncx, OPF fora de OEBPS/, capa e fontes embutidas', async ({ page }) => {
+  const { inPage } = require('../apoio/app');
+  const epub = await A.makeEpub({ version: 2, opfDir: '', chapters: 2, cover: 'meta', fonts: { 'f/x.ttf': Buffer.from('fonte') } });
+  const r = await inPage(page, async b => {
+    const k = await Kindle.open(b);
+    const out = { kind: k.kind, toc: k.toc.map(t => [t.title, t.file]), n: k.chapters.length, cover: /^blob:/.test(k.cover) || k.cover === '', hasFonts: k.hasFonts, h1: k.chapters.map(c => /<h1[^>]*>([^<]+)/.exec(c.html)[1]) };
+    k.close(); return out;
+  }, epub);
+  expect(r).toMatchObject({ kind: 'epub', n: 2, hasFonts: true, h1: ['Capítulo 1', 'Capítulo 2'], cover: true });
+  expect(r.toc.map(t => t[1])).toEqual([0, 1]);
+  const bad = await page.evaluate(async () => { try { await Kindle.open(new Uint8Array([0x50, 0x4b, 3, 4, 0, 0])); } catch (e) { return e.message; } });
+  expect(bad).toBe('não é um EPUB (o ZIP não abre).');
+});
