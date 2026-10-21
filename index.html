@@ -116,6 +116,7 @@
     </select>
     <label for="mPanels">Painéis (duplo toque amplia um pedaço da página)</label>
     <select id="mPanels">
+      <option value="auto">Detectar os quadrinhos da página</option>
       <option value="4">4 painéis por página (ampliação maior)</option>
       <option value="2">2 painéis por página (metades de cima e de baixo)</option>
       <option value="0">Sem painéis (só a página inteira)</option>
@@ -1582,17 +1583,25 @@ const Manga = (() => {
   }
 
   // desenha a imagem dentro da tela do aparelho, centralizada e sem distorcer
-  async function place(src, sx, sy, sw, sh, dev, fmt, quality) {
+  async function place(src, sx, sy, sw, sh, dev, o) {
     const k = Math.min(dev.w / sw, dev.h / sh);
     const w = Math.max(1, Math.round(sw * k)), h = Math.max(1, Math.round(sh * k));
     const cv = canvas(w, h), cx = cv.getContext('2d');
     cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
     cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
     cx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
-    const blob = await toBlob(cv, fmt, quality);
+    // a detecção roda na imagem final: as coordenadas já saem no espaço da página
+    let det = null;
+    if (o.panels === 'auto') {
+      const d = cx.getImageData(0, 0, w, h).data;
+      const g = new Uint8Array(w * h);
+      for (let i = 0, j = 0; i < d.length; i += 4, j++) g[j] = d[i];
+      det = detectBest(g, w, h, { rtl: o.rtl });
+    }
+    const blob = await toBlob(cv, o.fmt, o.quality);
     free(cv);
     if (!blob) throw new Error('não consegui gerar a imagem da página (memória).');
-    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: fmt, w, h,
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: o.fmt, w, h, det,
              x: Math.round((dev.w - w) / 2), y: Math.round((dev.h - h) / 2) };
   }
 
@@ -1622,12 +1631,233 @@ const Manga = (() => {
       const half = Math.floor(box.w / 2);
       const esq = [box.x, box.y, half, box.h], dir = [box.x + half, box.y, box.w - half, box.h];
       for (const [sx, sy, sw, sh] of (o.rtl ? [dir, esq] : [esq, dir]))
-        out.push(await place(cv, sx, sy, sw, sh, dev, o.fmt, o.quality));
+        out.push(await place(cv, sx, sy, sw, sh, dev, o));
     } else {
-      out.push(await place(cv, box.x, box.y, box.w, box.h, dev, o.fmt, o.quality));
+      out.push(await place(cv, box.x, box.y, box.w, box.h, dev, o));
     }
     free(cv);
     return out;
+  }
+
+  // ---------- detecção de quadrinhos ----------
+  // Corte X-Y recursivo: acha as calhas (faixas de papel que atravessam o bloco
+  // inteiro) e parte ali, alternando os eixos. Resolve a diagramação em grade, que
+  // é a maioria; o que não se encaixa é recusado pela pontuação e cai no modo de
+  // quadrantes. Não trata painel diagonal nem sangrado — retângulo não representa.
+  function otsu(hist, total) {   // limiar automático: papel amarelado não aceita valor fixo
+    let sum = 0;
+    for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sumB = 0, wB = 0, best = 0, thr = 127;
+    for (let t = 0; t < 256; t++) {
+      wB += hist[t]; if (!wB) continue;
+      const wF = total - wB; if (!wF) break;
+      sumB += t * hist[t];
+      const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+      if (v > best) { best = v; thr = t; }
+    }
+    return thr;
+  }
+
+  function detectPanels(gray, w, h, opt = {}) {
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
+    const thr = Math.max(60, Math.min(otsu(hist, gray.length), 205));
+
+    // integral de tinta: conta pixels escuros de qualquer retângulo em tempo constante
+    const iw = w + 1, S = new Uint32Array(iw * (h + 1));
+    for (let y = 0; y < h; y++) {
+      let run = 0;
+      for (let x = 0; x < w; x++) {
+        if (gray[y * w + x] <= thr) run++;
+        S[(y + 1) * iw + (x + 1)] = S[y * iw + (x + 1)] + run;
+      }
+    }
+    const ink = (x0, y0, x1, y1) =>
+      S[y1 * iw + x1] - S[y0 * iw + x1] - S[y1 * iw + x0] + S[y0 * iw + x0];
+
+    const MINGUT = Math.max(3, Math.round(Math.min(w, h) * (opt.gutter || 0.012)));
+    // tinta tolerada numa linha de calha: calha cruzada só pelo contorno de um balão
+    // ainda é calha. Valor escolhido por varredura em três corpora — acima disso,
+    // páginas que funcionavam passam a ser recusadas.
+    const TOL = opt.tol || 0.025;
+    // quanta tinta uma fileira precisa para valer como moldura, e em que janela procurar
+    // (digitalização torta espalha a linha da moldura por várias fileiras)
+    const RULE = opt.rule || 0.15, RULEWIN = opt.ruleWin || 2;
+    const DARKFRAC = opt.darkFrac || 0.85;  // acima disso a faixa é arte escura, não régua
+
+    // Separadores dentro de um retângulo, ao longo de um eixo. Há dois tipos: a calha
+    // branca (faixa quase sem tinta) e a régua preta (faixa fina quase toda tinta),
+    // que é como ficam dois quadros encostados, sem branco entre eles.
+    const DARKMAX = Math.max(3, Math.round(Math.min(w, h) * 0.02));
+    const gutters = (r, horiz) => {
+      const n = horiz ? r.y1 - r.y0 : r.x1 - r.x0;
+      const span = horiz ? r.x1 - r.x0 : r.y1 - r.y0;
+      const runs = [];
+      let s = -1, kind = 0;   // 0 nenhum, 1 branco, 2 régua
+      const close = i => {
+        if (s < 0) return;
+        const len = i - s;
+        if (kind === 1 && len >= MINGUT) runs.push({ a: s, b: i, dark: false });
+        else if (kind === 2 && len >= 2 && len <= DARKMAX) runs.push({ a: s, b: i, dark: true });
+        s = -1; kind = 0;
+      };
+      // mede só o miolo da faixa: a moldura da página (ou a borda do quadro vizinho)
+      // põe tinta nas duas pontas de toda linha de calha e a desqualificaria
+      const m = Math.min(Math.max(3, Math.round(span * 0.02)), Math.floor(span / 4));
+      const a0 = (horiz ? r.x0 : r.y0) + m, a1 = (horiz ? r.x1 : r.y1) - m;
+      const inner = Math.max(1, a1 - a0);
+      const lim2 = Math.max(1, Math.round(inner * TOL));
+      const full2 = inner - Math.max(2, Math.round(inner * 0.06));
+      const cnt = new Int32Array(n);
+      for (let i = 0; i < n; i++) {
+        const k = (horiz ? r.y0 : r.x0) + i;
+        cnt[i] = horiz ? ink(a0, k, a1, k + 1) : ink(k, a0, k + 1, a1);
+      }
+      for (let i = 0; i <= n; i++) {
+        const k2 = i < n ? (cnt[i] <= lim2 ? 1 : cnt[i] >= full2 ? 2 : 0) : 0;
+        if (k2 !== kind) { close(i); if (k2) { s = i; kind = k2; } }
+      }
+      close(n);
+
+      // Calha de verdade tem a moldura dos quadros encostada nos dois lados. Faixa
+      // branca sem isso é balão de fala atravessando o quadro, não divisão — era o
+      // que partia um quadro ao meio e fazia o zoom pegar só metade dele.
+      const nearRule = i => {
+        for (let k = Math.max(0, i - RULEWIN); k <= Math.min(n - 1, i + RULEWIN); k++)
+          if (cnt[k] >= inner * RULE) return true;
+        return false;
+      };
+      // Régua preta é exceção numa faixa: entre dois quadros encostados, as linhas
+      // vizinhas têm bem menos tinta que ela. Se quase toda a faixa está tintada,
+      // o que há ali é arte escura (uma lousa, um céu noturno) e as linhas cheias
+      // dentro dela não são divisão nenhuma — era isto que partia o quadro por dentro.
+      let heavy = 0;
+      for (let i = 0; i < n; i++) if (cnt[i] >= inner * 0.5) heavy++;
+      const escura = heavy > n * DARKFRAC;
+      return runs
+        .filter(g => g.a > 0 && g.b < n)   // encostado na borda é margem, não divisão
+        .filter(g => g.dark
+          ? !escura
+          : (nearRule(g.a - 1) && nearRule(g.b)))
+        .sort((p, q) => p.a - q.a);
+    };
+
+    // encolhe o retângulo até a tinta que ele contém
+    const shrink = r => {
+      let { x0, y0, x1, y1 } = r;
+      while (y0 < y1 - 1 && ink(x0, y0, x1, y0 + 1) === 0) y0++;
+      while (y1 > y0 + 1 && ink(x0, y1 - 1, x1, y1) === 0) y1--;
+      while (x0 < x1 - 1 && ink(x0, y0, x0 + 1, y1) === 0) x0++;
+      while (x1 > x0 + 1 && ink(x1 - 1, y0, x1, y1) === 0) x1--;
+      return { x0, y0, x1, y1 };
+    };
+
+    const MINSIDE = Math.round(Math.min(w, h) * 0.07);
+    const leaves = [];
+    const cut = (r, depth) => {
+      const rr = shrink(r);
+      rr.slot = { x0: r.sx0 ?? r.x0, y0: r.sy0 ?? r.y0, x1: r.sx1 ?? r.x1, y1: r.sy1 ?? r.y1 };
+      if (rr.x1 - rr.x0 < MINSIDE || rr.y1 - rr.y0 < MINSIDE) return;
+      if (depth > 6) { leaves.push(rr); return; }
+      // Mangá comum lê por fileiras, então o corte horizontal vem primeiro. Mas em
+      // 4-koma as tiras verticais atravessam a página inteira e cada uma é uma piada
+      // lida de cima a baixo: ali a vertical tem de vir antes, senão a ordem alterna
+      // entre as duas tiras. No topo, a existência de uma calha de altura inteira é
+      // justamente a assinatura do 4-koma.
+      const first = depth === 0 && gutters(rr, false).length ? [false, true] : [true, false];
+      for (const horiz of first) {
+        const runs = gutters(rr, horiz);
+        if (!runs.length) continue;
+        // Dois recortes por pedaço: o do conteúdo (sem a calha, que é o que define a
+        // caixa do quadro) e o da fatia, que corta no meio do separador e portanto
+        // ladrilha o bloco sem vão — é dele que sai a área de toque.
+        const base = horiz ? rr.y0 : rr.x0, end = horiz ? rr.y1 : rr.x1;
+        const sBase = horiz ? r.y0 : r.x0, sEnd = horiz ? r.y1 : r.x1;
+        let prev = base, sPrev = sBase;
+        const parts = [];
+        for (const g of runs) {
+          const mid = base + ((g.a + g.b) >> 1);
+          parts.push([prev, g.dark ? mid : base + g.a, sPrev, mid]);
+          prev = g.dark ? mid : base + g.b;
+          sPrev = mid;
+        }
+        parts.push([prev, end, sPrev, sEnd]);
+        // a ordem da recursão já é a ordem de leitura: fileiras de cima para baixo,
+        // colunas da direita para a esquerda em mangá
+        if (!horiz && opt.rtl !== false) parts.reverse();
+        for (const [p0, p1, s0, s1] of parts) {
+          if (p1 - p0 <= 0) continue;
+          const kx0 = r.sx0 ?? r.x0, kx1 = r.sx1 ?? r.x1;   // a fatia do pai no outro eixo
+          const ky0 = r.sy0 ?? r.y0, ky1 = r.sy1 ?? r.y1;
+          cut(horiz
+            ? { x0: rr.x0, y0: p0, x1: rr.x1, y1: p1, sx0: kx0, sy0: s0, sx1: kx1, sy1: s1 }
+            : { x0: p0, y0: rr.y0, x1: p1, y1: rr.y1, sx0: s0, sy0: ky0, sx1: s1, sy1: ky1 }, depth + 1);
+        }
+        return;
+      }
+      leaves.push(rr);
+    };
+    const page = shrink({ x0: 0, y0: 0, x1: w, y1: h });
+    cut(page, 0);
+
+    const pageArea = Math.max(1, (page.x1 - page.x0) * (page.y1 - page.y0));
+    const pw = page.x1 - page.x0, ph = page.y1 - page.y0;
+    const panels = leaves
+      .map(r => ({ ...r, area: (r.x1 - r.x0) * (r.y1 - r.y0) }))
+      .filter(r => {
+        if (r.area < pageArea * 0.02) return false;
+        const rw = r.x1 - r.x0, rh = r.y1 - r.y0;
+        if (rw < pw * 0.06 || rh < ph * 0.06) return false;          // lasca
+        if (Math.max(rw / rh, rh / rw) > 9) return false;            // tira fina: legenda, crédito
+        return true;
+      });
+
+    // A ordem de leitura sai da própria árvore de cortes: cada corte já visita as
+    // partes na ordem certa, então a sequência em que as folhas foram coletadas é a
+    // sequência de leitura. Isso resolve de uma vez o mangá comum (fileiras) e o
+    // 4-koma (tiras), que uma regra geométrica sobre as caixas prontas não separa.
+    const ordered = panels;
+
+    // moldura: quanto da borda do retângulo é tinta. Quadro de história em quadrinhos
+    // costuma ser emoldurado; coluna de texto corrido não é — é assim que a página de
+    // texto em duas colunas deixa de passar por diagramação de quadros.
+    const edgeInk = p => {
+      const t = Math.max(2, Math.round(Math.min(w, h) * 0.004));
+      const rw = p.x1 - p.x0, rh = p.y1 - p.y0;
+      if (rw <= 2 * t || rh <= 2 * t) return 0;
+      const top = ink(p.x0, p.y0, p.x1, p.y0 + t), bot = ink(p.x0, p.y1 - t, p.x1, p.y1);
+      const lef = ink(p.x0, p.y0 + t, p.x0 + t, p.y1 - t), rig = ink(p.x1 - t, p.y0 + t, p.x1, p.y1 - t);
+      const cells = 2 * rw * t + 2 * (rh - 2 * t) * t;
+      return cells ? (top + bot + lef + rig) / cells : 0;
+    };
+    for (const p of ordered) p.edge = edgeInk(p);
+    // basta um quadro claramente emoldurado: numa página com splash sangrado a maioria
+    // não tem moldura, e exigir maioria derrubaria a página inteira
+    const framed = ordered.length ? Math.max(...ordered.map(p => p.edge)) : 0;
+
+    // pontuação: quanto da página os quadros cobrem, e se a contagem faz sentido
+    const covered = ordered.reduce((s, p) => s + p.area, 0) / pageArea;
+    const biggest = ordered.length ? Math.max(...ordered.map(p => p.area)) / pageArea : 0;
+    const reasons = [];
+    if (ordered.length < 2) reasons.push('menos de dois quadros');
+    if (ordered.length > 16) reasons.push('quadros demais');
+    if (covered < 0.5) reasons.push('cobertura baixa');
+    if (ordered.length > 1 && biggest > 0.92) reasons.push('um quadro ocupa a página');
+    if (framed < 0.35) reasons.push('nenhum quadro emoldurado (texto ou anúncio?)');
+    return { panels: ordered, page, thr, covered, framed, ok: reasons.length === 0, reasons };
+  }
+
+  // Páginas densas (balão e arte cruzando a calha) não passam no corte estrito. Tenta
+  // de novo, mais tolerante, só quando a estrita falha: a página que já passou fica com
+  // o resultado melhor, e a que nunca passa continua sem painel.
+  const PASSES = [{ tol: 0.025 }, { tol: 0.05 }, { tol: 0.09 }];
+  function detectBest(gray, w, h, opt) {
+    let last = null;
+    for (const p of PASSES) {
+      last = detectPanels(gray, w, h, Object.assign({}, opt, p));
+      if (last.ok) return last;
+    }
+    return last;
   }
 
   // ---------- Panel View (magnificação de região) ----------
@@ -1667,6 +1897,56 @@ const Manga = (() => {
              y: Math.round((dev.h / 2 - mh / 2) / dev.h * 100) };
   }
 
+  // quadros detectados: cada um vira uma área de toque do seu tamanho e um div com a
+  // página ampliada e deslocada, de modo que aquele quadro preencha a tela
+  function detectedHtml(p, dev, det, file) {
+    const MAXMAG = 4, MINMAG = 1.15;
+    const areas = [], views = [];
+    // descarta antes de numerar: o ordinal precisa ser a sequência de leitura, sem buraco
+    const all = det.panels.map(q => {
+      const qw = q.x1 - q.x0, qh = q.y1 - q.y0;
+      return { q, qw, qh, s: Math.min(dev.w / qw, dev.h / qh, MAXMAG) };
+    });
+    // quadro que já ocupa a tela ganha pouco em ampliar — mas se sobrar menos de dois,
+    // a página inteira ficaria muda, e aí vale manter: a máscara isola o quadro mesmo
+    // com ampliação pequena, que é metade do valor do Panel View
+    const big = all.filter(u => u.s >= MINMAG);
+    const useful = big.length >= 2 ? big : all;
+    useful.forEach(({ q, qw, qh, s }, i) => {
+      const mw = Math.round(p.w * s), mh = Math.round(p.h * s);
+      const L = Math.round((dev.w - qw * s) / 2), T = Math.round((dev.h - qh * s) / 2);
+      const W = Math.round(qw * s), H = Math.round(qh * s);
+      const ox = Math.round(q.x0 * s) - L, oy = Math.round(q.y0 * s) - T;
+      const id = `PV${i + 1}`;
+      const pc = (v, t) => (v / t * 100).toFixed(2);
+
+      // área de toque: a fatia inteira, não a caixa justa, senão o vão entre quadros
+      // fica sem dono e o toque perto da borda cai no vizinho
+      const sl = q.slot || q;
+      const ax = Math.max(0, p.x + sl.x0), ay = Math.max(0, p.y + sl.y0);
+      const aw = Math.min(dev.w - ax, sl.x1 - sl.x0), ah = Math.min(dev.h - ay, sl.y1 - sl.y0);
+      areas.push(`<div id="${id}" style="position:absolute;left:${pc(ax, dev.w)}%;top:${pc(ay, dev.h)}%;` +
+                 `width:${pc(aw, dev.w)}%;height:${pc(ah, dev.h)}%">` +
+                 `<a style="display:inline-block;width:100%;height:100%;" class="app-amzn-magnify" ` +
+                 `data-app-amzn-magnify='{"targetId":"${id}-P", "ordinal":${i + 1}}'></a></div>`);
+
+      // máscara: tampa tudo fora do quadro, que é como o Guided View da Amazon isola um
+      // quadro — sem isso aparece pedaço do vizinho em volta
+      // a folga evita decepar balão que transborda a moldura do quadro
+      const pad = Math.round(Math.min(W, H) * 0.04);
+      const mL = Math.max(0, L - pad), mT = Math.max(0, T - pad);
+      const mR = Math.min(dev.w, L + W + pad), mB = Math.min(dev.h, T + H + pad);
+      const band = (x, y, bw, bh) => bw > 0 && bh > 0
+        ? `<div style="position:absolute;left:${x}px;top:${y}px;width:${bw}px;height:${bh}px;background:#ffffff"></div>` : '';
+      const mask = band(0, 0, dev.w, mT) + band(0, mB, dev.w, dev.h - mB) +
+                   band(0, mT, mL, mB - mT) + band(mR, mT, dev.w - mR, mB - mT);
+      views.push(`<div class="PV-P" id="${id}-P"><img style="position:absolute;left:${-ox}px;top:${-oy}px" ` +
+                 `src="${file}" width="${mw}" height="${mh}"/>${mask}</div>`);
+    });
+    if (!areas.length) return null;
+    return `\n<div id="PV">\n${areas.join('\n')}\n</div>\n${views.join('\n')}`;
+  }
+
   function panelHtml(plan, file) {
     const areas = plan.boxes.map((b, i) =>
       `<div id="${b}"><a style="display:inline-block;width:100%;height:100%;" class="app-amzn-magnify" ` +
@@ -1690,12 +1970,24 @@ const Manga = (() => {
     zip.file('META-INF/container.xml',
       '<?xml version="1.0" encoding="utf-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">' +
       '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
-    let anyPanel = false;
-    const plans = pages.map(p => {
+    // 'auto' usa os quadros detectados; quando a página é recusada, cai nos quadrantes
+    let anyPanel = false, detOk = 0;
+    const html = pages.map((p, i) => {
+      const file = `img/p${i + 1}.${ext(p)}`;
+      if (meta.panels === 'auto') {
+        // página recusada fica sem painel de propósito: quadrante arbitrário numa página
+        // e quadro de verdade na outra é pior de usar do que não ter painel ali
+        if (!(p.det && p.det.ok)) return '';
+        const s = detectedHtml(p, dev, p.det, file);
+        if (s) { anyPanel = true; detOk++; return s; }
+        return '';
+      }
       const plan = panelPlan(p, dev, meta.panels, meta.rtl);
-      if (plan) anyPanel = true;
-      return plan;
+      if (!plan) return '';
+      anyPanel = true;
+      return panelHtml(plan, file);
     });
+    meta.detected = detOk;
 
     zip.file('OEBPS/style.css',
       `@page { margin: 0; }\n` +
@@ -1713,7 +2005,7 @@ const Manga = (() => {
         `<link rel="stylesheet" type="text/css" href="style.css"/></head>\n` +
         `<body><div class="fs"><img src="img/${f}" alt="" class="pg" ` +
         `style="top:${p.y}px; left:${p.x}px; width:${p.w}px; height:${p.h}px"/></div>` +
-        (plans[i] ? panelHtml(plans[i], 'img/' + f) : '') + `</body></html>`);
+        html[i] + `</body></html>`);
     });
     meta.regionMag = anyPanel;
 
@@ -1750,7 +2042,7 @@ const Manga = (() => {
     const dev = opt.dev || DEVICES[0];
     const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level,
                 fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9,
-                panels: opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
+                panels: opt.panels === 'auto' || opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
 
     say('Lendo o PDF…'); await tick();
     let doc;
@@ -1779,18 +2071,31 @@ const Manga = (() => {
       const uuid = (() => { const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = b[6] & 15 | 64; b[8] = b[8] & 63 | 128;
         const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
         return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`; })();
+      // PDF de texto corrido cai aqui por engano com facilidade: as páginas não têm
+      // quadro emoldurado nenhum. Vale avisar, porque a aba Para Kindle faz muito
+      // melhor com texto do que virar 300 fotos de página.
+      // A mediana da moldurice separa com folga: num livro de prosa fica perto de 0,2;
+      // em mangá, entre 0,58 e 0,85, mesmo num cheio de página inteira como o Vagabond.
+      const judged = pages.filter(p => p.det).map(p => p.det.framed).sort((a, b) => a - b);
+      const median = judged.length ? judged[judged.length >> 1] : 1;
+      const looksLikeText = judged.length >= 5 && median < 0.3;
+
       const meta = { title, author, lang: opt.lang || 'pt', rtl: o.rtl, uuid, panels: o.panels };
       const epub = await buildEpub(pages, dev, meta);
 
       const a = await Azw3.convert(epub, { say, tick,
         fixed: { w: dev.w, h: dev.h, rtl: o.rtl, bookType: 'comic', regionMag: meta.regionMag } });
-      return { bytes: a.bytes, title: a.title, authors: a.authors, pages: pages.length,
-               device: dev, panels: meta.regionMag ? o.panels : 0 };
+      const r = { bytes: a.bytes, title: a.title, authors: a.authors, pages: pages.length,
+                  device: dev, panels: meta.regionMag ? o.panels : 0, detected: meta.detected || 0,
+                  looksLikeText };
+      if (opt._epub) r.epub = epub;   // para conferir o layout fixo num navegador
+      return r;
     } finally { doc.destroy(); }
   }
 
   return { convert, DEVICES, deviceById,
-           _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml };
+           _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml,
+           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu };
 })();
 </script>
 <script>/*! For license information please see tesseract.min.js.LICENSE.txt */
@@ -4343,7 +4648,7 @@ ${spine.join('\n')}
       say, tick,
       dev: Manga.deviceById($('mDev').value),
       rtl: $('mDir').value === 'rtl',
-      panels: +$('mPanels').value,
+      panels: $('mPanels').value === 'auto' ? 'auto' : +$('mPanels').value,
       split: $('mSplit').checked,
       crop: $('mCrop').checked,
       level: $('mLevel').checked,
@@ -4387,7 +4692,9 @@ ${spine.join('\n')}
         name += '.' + M.ext;
         const url = URL.createObjectURL(new Blob([r.bytes], { type: M.mime }));
         results.push({ name, url, bytes: r.bytes, mime: M.mime });
-        const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}` : `${r.pages} páginas`;
+        const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}`
+          : `${r.pages} páginas${r.detected ? ` · quadrinhos detectados em ${r.detected}` : ''}` +
+            (r.looksLikeText ? ' · parece texto corrido, não quadrinho: a aba Para Kindle fica bem melhor' : '');
         setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}`, 'ok', { name, url });
       } catch (e) {
         console.error(e);
