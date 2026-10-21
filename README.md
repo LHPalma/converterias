@@ -17,7 +17,8 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
 | **Mangá** (PDF escaneado → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
-| **PDF escaneado → PDF** com OCR, no padrão do EPUB → PDF (linha de comando, em `tools/`) | disponível |
+| **Escaneado → PDF** (OCR no navegador, no padrão do EPUB → PDF) | disponível |
+| **PDF escaneado → PDF** pela linha de comando (`tools/scan2pdf.py`, OCR com ocrmypdf no computador) | disponível |
 
 ## EPUB → PDF
 
@@ -124,6 +125,14 @@ O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8) e KFX. Esta aba
 
 **Qual escolher:** AZW3 abre em qualquer Kindle e preserva mais do EPUB (fontes embutidas, estilos, notas em pop-up). KFX é o formato atual da Amazon, com tipografia melhor (hifenização e justificação da Amazon), e funciona nos aparelhos de 2015 para cá; aqui ele sai com o texto estruturado e as imagens, sem o CSS do EPUB. Na dúvida, AZW3.
 
+### Simulador de Kindle
+
+Depois de converter, cada AZW3 ou KFX da lista ganha **Simular no Kindle**: o arquivo gerado é aberto no próprio navegador e mostrado numa tela do aparelho, sem sair do seu aparelho.
+
+- **Mangá (layout fixo):** as páginas e o Panel View saem do arquivo de verdade, lidos dele e não recalculados: as áreas de toque (numeradas na ordem de leitura com **Áreas de toque**), o quadro ampliado e a máscara em volta dele. Um toque amplia, **▶** caminha para o próximo quadro e, depois do último, para a próxima página; **Esc** ou um toque fora volta à página inteira. O tamanho da tela é o do aparelho escolhido na conversão.
+- **Livro de texto (AZW3 e KFX):** o capítulo é paginado numa tela com a resolução do aparelho escolhido, com o CSS e as imagens do AZW3 (o KFX não leva o CSS do EPUB), sumário, letra maior/menor e toque nas bordas para virar a página. É uma **aproximação**: o Kindle diagrama com o motor e as fontes dele.
+- **Como funciona:** `src/kindle.js` remonta o AZW3 como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, fluxos de CSS e SVG, recursos e fontes) e decodifica o KFX do Amazon Ion.
+
 ### AZW3
 
 - **O que entra:** texto com parágrafos, títulos, listas, tabelas, notas de rodapé (pop-up), links internos, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG; JPEG progressivo ou CMYK é refeito), capa com miniatura, sumário em árvore (com os mesmos níveis do EPUB) e fontes TTF/OTF embutidas (inclusive as ofuscadas).
@@ -148,12 +157,28 @@ Mangá e HQ no Kindle não são texto que reflui: são **uma imagem por página*
 3. **Converter** e copie os `.azw3` para a pasta `documents` do Kindle.
 
 - **O que ele faz com cada página:** rasteriza, converte para tons de cinza (o e-ink não mostra cor), apara a moldura branca da digitalização, redimensiona para a tela do aparelho sem distorcer e centraliza o que sobra. Páginas duplas (em paisagem) podem ser partidas em duas, já na ordem de leitura — na leitura da direita para a esquerda, a metade direita vem primeiro.
-- **Panel View:** cada página sai com as regiões de magnificação da Amazon marcadas — duplo toque amplia um pedaço da página e o toque seguinte caminha para o próximo, na ordem de leitura. Dá para escolher **4 painéis** (ampliação maior, quadrantes) ou **2 painéis** (metades de cima e de baixo, ampliação menor), ou desligar. A marcação é a que o Kindle reconhece: um `<a class="app-amzn-magnify">` cobrindo cada região, com `targetId` e `ordinal`, e a mesma imagem ampliada ancorada num canto dentro de um `<div>` escondido — então o arquivo **não cresce**, é a mesma imagem reaproveitada. Páginas que já cabem inteiras na tela não recebem painéis.
-- **Sentido de leitura:** `horizontal-rl` para mangá japonês, `horizontal-lr` para o resto. Define a ordem das páginas e também a dos painéis: em mangá, o canto superior direito é o `ordinal: 1`.
+- **Panel View:** cada página sai com as regiões de magnificação da Amazon marcadas — duplo toque amplia um pedaço da página e o toque seguinte caminha para o próximo, na ordem de leitura. A marcação é a que o Kindle reconhece: um `<a class="app-amzn-magnify">` cobrindo cada região, com `targetId` e `ordinal`, e a mesma imagem ampliada e deslocada dentro de um `<div>` escondido — então o arquivo **não cresce**, é a mesma imagem reaproveitada. Quatro opções:
+  - **Detectar os quadrinhos da página**: acha os quadros de verdade e faz cada um preencher a tela, com o resto da página **tampado em branco** — é assim que o Guided View da Amazon isola um quadro. A página que não dá para separar com cortes retos sai sem painel nenhum, de propósito: painel de verdade numa página e quadrante arbitrário na outra é pior de usar do que não ter painel ali.
+  - **4 painéis** (quadrantes, ampliação maior) ou **2 painéis** (metades de cima e de baixo).
+  - **Sem painéis**: só a página inteira.
+  
+  Quadros que já ocupam quase a tela não viram painel, a menos que sobrem menos de dois na página — aí vale manter, porque a máscara isola o quadro mesmo com ampliação pequena, e página muda no meio do livro é pior. A numeração é sempre contígua na ordem de leitura.
+- **Como a detecção funciona:** limiar automático de Otsu separa tinta de papel; corte X-Y recursivo parte a página nos separadores, que podem ser **calha branca** (faixa quase sem tinta) ou **régua preta fina** (dois quadros encostados, sem branco entre eles). Quatro detalhes que decidem o resultado:
+  - a medição ignora a margem externa, senão a moldura da página desqualifica toda linha de calha e a página inteira vira um quadro só;
+  - calha só vale se tiver **moldura encostada dos dois lados** — sem isso, o balão de fala branco atravessando um quadro parece calha e parte o quadro ao meio;
+  - **régua preta só vale onde é exceção**: entre dois quadros encostados ela é uma linha cheia de tinta no meio de linhas bem mais claras, mas dentro de arte escura (uma lousa, um céu noturno) quase toda linha é cheia e as de lá não dividem nada — sem essa condição o quadro era partido por dentro e o zoom pegava um retângulo no meio dele;
+  - cada quadro guarda dois retângulos: o **justo** (que define o zoom) e a **fatia** (que define a área de toque). As fatias ladrilham a página inteira, senão o vão entre quadros fica sem dono e o toque perto da borda amplia o vizinho.
+  
+  Página densa demais para o corte estrito é tentada de novo com a calha mais tolerante, em três passes — só quando a estrita falha, então a página que já passou nunca piora.
+  
+  Depois descarta lascas e tiras finas, e pontua a página por cobertura, contagem e **moldurice** — quanto da borda do quadro é tinta. A moldurice separa os casos com folga: quadro de verdade fica entre 0,45 e 0,97, coluna de texto corrido entre 0,03 e 0,08, e é assim que página de texto e anúncio são recusados.
+- **Sentido de leitura:** `horizontal-rl` para mangá japonês, `horizontal-lr` para o resto. Define a ordem das páginas e também a dos painéis. A ordem sai da própria árvore de cortes, não de uma regra sobre as caixas prontas: mangá comum lê por fileiras (direita→esquerda dentro de cada uma), e **4-koma** lê por tiras verticais, cada uma inteira de cima a baixo antes de passar para a de ao lado. Uma regra geométrica sobre as caixas não separa os dois casos; a árvore separa.
 - **Aparelhos** (resoluções dos perfis do [Kindle Comic Converter](https://github.com/ciromattia/kcc)): Paperwhite 3/4, Voyage, Oasis 1 e Kindle 11 (1072 × 1448); Paperwhite 5 e Signature (1236 × 1648); Oasis 2/3 e Libra (1264 × 1680); Paperwhite 12ª geração e Colorsoft (1272 × 1696); Scribe (1860 × 2480); Paperwhite 1/2 (758 × 1024); Kindle básico antigo (600 × 800).
 - **Formato:** AZW3 (KF8) de layout fixo. Os metadados que fazem o Kindle tratar o arquivo como quadrinho vão nos registros EXTH: `122 fixed-layout`, `123 book-type=comic`, `124 orientation-lock`, `126 original-resolution`, `127 zero-gutter`, `128 zero-margin`, `132 RegionMagnification`, `525 primary-writing-mode` e `527 page-progression-direction`. Cada página é um XHTML com `<meta name="viewport">` e a imagem posicionada em pixels.
 - **Como foi conferido:** o mesmo EPUB de layout fixo foi passado pelo **kindlegen da Amazon** e pelo nosso gravador, e os registros EXTH de layout fixo saem **idênticos**; o HTML e o CSS gerados também batem. A prova de que a marcação de painel é a certa: montei um EPUB com ela, passei pelo kindlegen e ele manteve `RegionMagnification = true` — sem a marcação, ele força `false`. A saída passa limpa pelo `calibre-debug --inspect-mobi`, pelo KindleUnpack e pelos verificadores de índice e de TBS, nos três modos de painel. Testado com PDF de 63 páginas na resolução do Scribe (31 MB, 23 s, 141 MB de memória), com e sem partir páginas duplas, em JPEG e em PNG, nos dois sentidos de leitura, e com página quase vazia.
-- **Limites:** não foi testado num Kindle de verdade. Serve para PDF de página escaneada; PDF de texto corrido fica muito melhor na aba **Para Kindle**. Os painéis são **regiões geométricas** (quadrantes ou metades), não os quadrinhos de verdade: não há detecção da borda real dos painéis. A ampliação reusa a imagem da página, então amplia sem ganhar detalhe. Não faz a quantização para os 16 tons do e-ink e não lê CBZ ainda.
+- **Quanto a detecção acerta:** em quatro mangás de estilos bem diferentes — **30 de 40 páginas** num 4-koma (e as recusas são as páginas de personagem, quase vazias), **10 de 11** no Ubunchu, **48 de 55** num shonen moderno e **31 de 62** num de arte solta, cheio de página inteira e quadro sangrado. Esse último é o piso: quanto mais o autor abandona a grade, menos o corte reto tem o que fazer, e boa parte das recusas ali é ilustração de página inteira, não quadrinho. Num livro de prosa a detecção recusa 59 de 60 páginas, que é o esperado.
+- **Quando o PDF não é quadrinho:** se a maioria das páginas não tem quadro emoldurado, a aba avisa que aquilo parece texto corrido e aponta a aba **Para Kindle**. A mediana da moldurice separa os casos com folga: perto de 0,2 num livro de prosa, entre 0,58 e 0,85 nos mangás testados.
+- **Limites:** não foi testado num Kindle de verdade. Serve para PDF de página escaneada; PDF de texto corrido fica muito melhor na aba **Para Kindle**. A detecção acha **retângulos**: quadro diagonal ou sangrado não é representável, e o que ela erra, erra para menos (acha quadros a mais raramente; acha de menos com frequência). A ampliação reusa a imagem da página, então amplia sem ganhar detalhe. Não faz a quantização para os 16 tons do e-ink e não lê CBZ ainda.
 
 ## Desenvolvimento
 
@@ -164,11 +189,35 @@ python3 build.py   # gera index.html a partir de src/template.html + vendor/
 - `src/template.html`: interface e o código dos conversores.
 - `src/azw3.js`: gravador de AZW3 (embutido no `index.html` pelo `build.py`).
 - `src/kfx.js`: gravador de KFX, com o codificador de Amazon Ion binário (idem).
+- `src/kindle.js`: simulador de Kindle (leitor de AZW3 e KFX para a tela de pré-visualização).
 - `src/manga.js`: PDF → páginas de mangá (cinza, aparo, partição de páginas duplas) e o EPUB de layout fixo que vira AZW3 (idem).
 - `vendor/`: bibliotecas e fontes embutidas (ver [THIRD_PARTY.md](THIRD_PARTY.md)).
 - `sw.js` e `manifest.webmanifest`: PWA (cache offline).
 
 Para publicar: *Settings → Pages → Deploy from a branch → `main` / root*.
+
+### Testes
+
+Testes automáticos com [Playwright](https://playwright.dev): o app continua sem Node, isso é só para desenvolver.
+
+```bash
+npm install
+npx playwright install chromium   # uma vez
+npm test                          # confere o index.html e roda todos os testes (~3 min)
+npx playwright test -g "Kindle"   # só os testes cujo nome tem "Kindle"
+npx playwright test tests/unidade # só os unitários (~20 s)
+npm run coverage                  # os mesmos testes, medindo a cobertura: relatório em coverage/index.html
+```
+
+Tudo roda no Chromium de verdade, com o app servido por HTTP (como no GitHub Pages). Os arquivos de entrada são gerados na hora pelos próprios testes (nada de binário no repositório), e as saídas são abertas e conferidas por leitores escritos à parte, a partir dos formatos: o AZW3 é remontado como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, sumário, recursos), o KFX é decodificado do Amazon Ion. Qualquer erro de JavaScript na página faz o teste falhar.
+
+- `tests/e2e/`: ponta a ponta, um arquivo por aba (`epub-pdf`, `pdf-epub`, `pdf-epub-detalhes`, `juntar`, `imagens`, `organizar`, `kindle`, `manga`, `ocr`), `simulador` (que também salva capturas de cada aparelho em `simulador/`; no CI, artefato **simulador**) e `interface` (abas e endereços `#`, cancelamento, compartilhar, PWA offline, `build.py --check`).
+- `tests/unidade/`: unitários das funções internas, no navegador: `app` (as de `src/template.html`, expostas em `window.__converterias`), `azw3`, `kfx`, `manga`, `ocr` e `spell`.
+- `tests/apoio/`: `arquivos.js` (geradores: EPUB 2/3, PDFs de livro, escaneados, com senha, quadrinhos, imagens), `leitores.js` (PDF, EPUB, AZW3, KFX) e `app.js` (abrir aba, converter, baixar).
+- `tests/cobertura/`: a medição de cobertura, que carrega os scripts de `src/` como arquivos (`cobertura.html`, gerado e ignorado pelo git).
+- Testes marcados com `test.fixme` descrevem falhas conhecidas que ainda não foram corrigidas: quando alguém corrigir, é só trocar por `test`.
+
+O GitHub Actions (`.github/workflows/testes.yml`) roda tudo em cada push na `main` e em cada pull request, e num segundo job mede a cobertura (resumo na própria execução, relatório completo nos artefatos). Ao corrigir um bug, vale acrescentar um teste que o reproduz.
 
 ## Aviso
 
@@ -178,9 +227,37 @@ Use apenas com livros que você tem direito de converter. O projeto não inclui 
 
 MIT (ver [LICENSE](LICENSE)). Bibliotecas e fontes de terceiros mantêm as próprias licenças.
 
+## Escaneado → PDF (OCR)
+
+PDF de livro escaneado vira PDF com texto de verdade, na mesma diagramação do EPUB → PDF. O OCR é feito **no próprio aparelho** com o [Tesseract.js](https://github.com/naptha/tesseract.js).
+
+### Como usar
+
+1. Toque em **Escaneado → PDF** (ou abra com `#escaneado` no fim do endereço) e escolha o PDF.
+2. Preencha título e autor (opcional; o padrão é o nome do arquivo), escolha o idioma e, se quiser, as páginas de conteúdo (`6-120`). Os ajustes de página e fonte são os mesmos do EPUB → PDF.
+3. **Converter** e baixe o PDF.
+
+### O que ele faz
+
+- Desenha cada página com o pdf.js e lê o texto com o Tesseract (português, inglês ou os dois).
+- **Parágrafos** reconstruídos pela margem e pelo recuo, com a hifenização de fim de linha desfeita; cabeçalhos correntes e números de página saem.
+- **Capítulos** detectados pelos cabeçalhos correntes (o título é o do cabeçalho); a página de abertura e a ilustração colada nela entram no capítulo novo.
+- **"Capítulo N"**: se o livro tem Sumário impresso com "Capítulo 1, 2…", o rótulo vira um título acima do nome do capítulo (pelo título ou, se o OCR errou o título, pela ordem). Prefácio, Posfácio e afins ficam sem número.
+- **Notas e Referências** (também *Referências* e *Bibliografia*) no topo de uma página viram um capítulo próprio. Cada nota começa no número; endereços partidos em várias linhas são remontados (sem espaços, com o hífen certo) e `hrtps://` volta a ser `https://`.
+- **Qualidade do OCR**: *Rápida* usa o modelo que já vem no app. *Alta qualidade* usa os modelos `best` do Tesseract (8 a 15 MB por idioma, bem mais lentos e mais precisos), baixados do jsDelivr só na primeira vez e guardados no navegador; só os dados do idioma são baixados, o seu arquivo nunca sai do aparelho. Sem internet na primeira vez, o app volta para o modelo rápido.
+- **Ilustrações, gráficos e páginas com pouco texto** entram como imagem, sem as bordas do scan; a primeira página vira a capa.
+- **Confiança por palavra**: linhas-lixo do OCR (borda do scan, manchas) são descartadas e o resultado avisa quantas palavras foram lidas com pouca certeza.
+- **Correção por dicionário** (opção *Corrigir palavras com o dicionário*, só português): usa o dicionário Hunspell pt-BR (VERO, ~5 MB, baixado na primeira vez e guardado no cache). Só mexe em palavras que o dicionário não conhece **e** que o OCR leu com pouca certeza, e só quando há uma única correção clara (acento perdido, confusões típicas como rn/m e l/i); junta palavras partidas pela hifenização e separa palavras coladas ("quevirão" → "que virão"). Nomes próprios, siglas, números e endereços ficam como estão.
+- No **PDF → EPUB** (e no Para Kindle) a opção *Fazer OCR se o PDF for escaneado* usa o mesmo caminho e gera o EPUB.
+
+### Limitações
+
+- O motor de OCR (cerca de 6 MB: núcleo WebAssembly e dados de idioma) vem da pasta `vendor/ocr/` na primeira vez e fica no cache para uso offline. Por isso o OCR não funciona abrindo o `index.html` direto do arquivo: use o endereço do site (GitHub Pages) ou um servidor local (`python3 -m http.server`).
+- É lento: alguns segundos por página no computador, bem mais no celular, e consome memória. Prefira um livro por vez e use o intervalo de páginas para testar.
+- Erros de reconhecimento continuam no texto; tabelas e gráficos viram imagem; livros de várias colunas ou com layout livre podem sair com parágrafos errados.
 ## PDF escaneado → PDF (ferramenta local)
 
-O app roda 100% no navegador e não faz OCR. Para um livro **escaneado**, a ferramenta `tools/scan2pdf.py` faz o OCR no seu computador, reconstrói o livro e converte com o **mesmo motor do EPUB → PDF** (o próprio `index.html`, aberto num Chromium sem interface), então o PDF sai com a diagramação de qualquer EPUB convertido pelo app.
+Além do OCR no navegador (aba Escaneado → PDF), para um livro **escaneado** a ferramenta `tools/scan2pdf.py` faz o OCR no seu computador, reconstrói o livro e converte com o **mesmo motor do EPUB → PDF** (o próprio `index.html`, aberto num Chromium sem interface), então o PDF sai com a diagramação de qualquer EPUB convertido pelo app.
 
 ```bash
 python3 tools/scan2pdf.py livro-escaneado.pdf --title "Título - Subtítulo" --author "Autor" -o saida/

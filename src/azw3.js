@@ -127,8 +127,8 @@ const Azw3 = (() => {
         const uidRef = opf.documentElement.getAttribute('unique-identifier');
         const uidEl = uidRef && [...opf.querySelectorAll('metadata > identifier, dc\\:identifier')].find(e => e.getAttribute('id') === uidRef);
         const uid = uidEl ? uidEl.textContent : '';
-        for (const ed of parse(await encF.async('string')).getElementsByTagName('EncryptedData')) {
-          const alg = ed.getElementsByTagName('EncryptionMethod')[0]?.getAttribute('Algorithm') || '', ref = ed.getElementsByTagName('CipherReference')[0];
+        for (const ed of parse(await encF.async('string')).getElementsByTagNameNS('*', 'EncryptedData')) {
+          const alg = ed.getElementsByTagNameNS('*', 'EncryptionMethod')[0]?.getAttribute('Algorithm') || '', ref = ed.getElementsByTagNameNS('*', 'CipherReference')[0];
           if (!ref) continue;
           let u = ref.getAttribute('URI'); try { u = decodeURIComponent(u); } catch (e) {}
           obf.set(u.replace(/^\//, ''), { alg, uid });
@@ -836,5 +836,7 @@ const Azw3 = (() => {
     return { bytes, title: book.title, authors: book.authors, lang, textLength: fullText.length, records: n, images: resources.length, sections: files.length };
   }
 
-  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage };
+  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage,
+           _sniff: sniff, _jpegInfo: jpegInfo, _sha1: sha1, _fontRecord: fontRecord, _thumbnail: thumbnail, _ulen: ulen, _clean: clean,
+           _buildIndex: buildIndex, _buildCncx: buildCncx, _tbsRecord: tbsRecord, _normCss: normCss, _fontFaces: fontFaces, _fixCss: fixCss };
 })();

@@ -1,5 +1,5 @@
 // Cache simples: o app abre offline depois da primeira visita (stale-while-revalidate).
-const CACHE = 'converterias-v10';
+const CACHE = 'converterias-v20';
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

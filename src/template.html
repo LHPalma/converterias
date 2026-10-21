@@ -57,6 +57,30 @@
   #orgAct button { flex:1; padding:10px 0; font-size:1.05rem; }
   .tabs button { flex:1 1 28%; padding:10px; background:transparent; color:var(--accent); border:2px solid var(--accent); }
   .tabs button.on { background:var(--accent); color:#fff; }
+  #list .sim { width:auto; display:inline; padding:0; margin-left:10px; background:none; color:var(--accent); font-size:inherit; text-decoration:underline; }
+  /* simulador de Kindle: a tela do aparelho manda na proporção; o e-ink é cinza */
+  #sim { width:min(100vw, 560px); max-width:100vw; max-height:100dvh; padding:0; border:0; border-radius:14px; background:var(--card); color:var(--fg); }
+  #sim::backdrop { background:rgba(0,0,0,.6); }
+  #sim .shead { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); }
+  #sim .shead strong { flex:1; font-size:.95rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #sim button { width:auto; padding:7px 12px; font-size:.9rem; }
+  #sim .sbody { padding:12px; display:flex; flex-direction:column; gap:10px; align-items:center; }
+  #sim .srow { display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap; width:100%; }
+  #sim select { width:auto; padding:6px; font-size:.85rem; }
+  #simDev { max-width:100%; }
+  .kbezel { background:#23241f; border-radius:14px; padding:14px 12px 26px; width:100%; max-width:420px; }
+  .kscreen { position:relative; width:100%; background:#e9e7e1; overflow:hidden; user-select:none; -webkit-user-select:none; filter:grayscale(1); }
+  .kscreen.color { filter:none; }
+  .kscreen > img { position:absolute; display:block; }
+  .kscreen .kmask { position:absolute; background:#e9e7e1; }
+  .kscreen .khit { position:absolute; width:auto; padding:0; border:0; border-radius:0; background:transparent; cursor:zoom-in; }
+  .kscreen.areas .khit { outline:2px solid #9a4722; outline-offset:-2px; background:rgba(154,71,34,.12); }
+  .kscreen .khit b { display:none; position:absolute; left:0; top:0; background:#9a4722; color:#fff; font:700 11px/1 monospace; padding:3px 5px; }
+  .kscreen.areas .khit b { display:block; }
+  .kscreen iframe { position:absolute; left:0; top:0; border:0; transform-origin:0 0; background:#e9e7e1; pointer-events:none; }
+  .kscreen .kturn { position:absolute; top:0; bottom:0; width:35%; padding:0; border:0; border-radius:0; background:transparent; }
+  #simCount { font:.85rem monospace; color:var(--muted); min-width:9ch; text-align:center; }
+  #simHint { font-size:.8rem; color:var(--muted); text-align:center; min-height:1.2em; }
 </style>
 </head>
 <body>
@@ -73,6 +97,7 @@
     <button type="button" data-mode="org">Organizar PDF</button>
     <button type="button" data-mode="kindle">Para Kindle</button>
     <button type="button" data-mode="manga">Mangá</button>
+    <button type="button" data-mode="ocr">Escaneado → PDF</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -115,6 +140,7 @@
     </select>
     <label for="mPanels">Painéis (duplo toque amplia um pedaço da página)</label>
     <select id="mPanels">
+      <option value="auto">Detectar os quadrinhos da página</option>
       <option value="4">4 painéis por página (ampliação maior)</option>
       <option value="2">2 painéis por página (metades de cima e de baixo)</option>
       <option value="0">Sem painéis (só a página inteira)</option>
@@ -129,6 +155,29 @@
     <label class="chk"><input id="pCover" type="checkbox" checked> Primeira página como capa</label>
     <label class="chk"><input id="pImgs" type="checkbox" checked> Incluir imagens (figuras e páginas escaneadas)</label>
     <label class="chk"><input id="pHf" type="checkbox" checked> Remover cabeçalhos, rodapés e números de página</label>
+    <label class="chk"><input id="pOcr" type="checkbox"> Fazer OCR se o PDF for escaneado (mais lento)</label>
+  </div>
+
+  <div class="card" id="optOCR" hidden>
+    <label for="oTitle">Título (opcional; use " - " para separar o subtítulo)</label>
+    <input id="oTitle" type="text" autocomplete="off" placeholder="Padrão: o nome do arquivo">
+    <label for="oAuthor">Autor (opcional)</label>
+    <input id="oAuthor" type="text" autocomplete="off">
+    <label for="oLang">Idioma do livro (OCR)</label>
+    <select id="oLang">
+      <option value="por">Português</option>
+      <option value="eng">Inglês</option>
+      <option value="por+eng">Português e inglês</option>
+    </select>
+    <label for="oQual">Qualidade do OCR</label>
+    <select id="oQual">
+      <option value="fast">Rápida (já vem no app)</option>
+      <option value="best">Alta qualidade (baixa 8 a 15 MB da internet na primeira vez; mais lenta)</option>
+    </select>
+    <label for="oRange">Páginas de conteúdo (opcional, ex.: 6-120)</label>
+    <input id="oRange" type="text" inputmode="numeric" autocomplete="off" placeholder="Todas">
+    <label class="chk"><input id="oCover" type="checkbox" checked> Primeira página como capa</label>
+    <label class="chk"><input id="oFix" type="checkbox" checked> Corrigir palavras com o dicionário (só português; baixa ~5 MB na primeira vez)</label>
   </div>
 
   <div class="card" id="optMerge" hidden>
@@ -191,6 +240,23 @@
   <small id="note"></small>
 </main>
 
+<dialog id="sim" aria-label="Simulador de Kindle">
+  <div class="shead"><strong id="simTitle">Simulador de Kindle</strong><button type="button" class="alt" id="simClose">Fechar</button></div>
+  <div class="sbody">
+    <div class="srow"><select id="simDev" aria-label="Aparelho"></select><select id="simToc" aria-label="Sumário"></select></div>
+    <div class="kbezel"><div class="kscreen" id="simScreen"></div></div>
+    <div id="simHint"></div>
+    <div class="srow">
+      <button type="button" id="simPrev">◀</button><span id="simCount"></span><button type="button" id="simNext">▶</button>
+    </div>
+    <div class="srow">
+      <button type="button" class="alt" id="simSmaller" title="Letra menor">A−</button><button type="button" class="alt" id="simBigger" title="Letra maior">A+</button>
+      <button type="button" class="alt" id="simAreas" aria-pressed="false">Áreas de toque</button>
+      <button type="button" class="alt" id="simExit" hidden>Sair do quadro</button>
+    </div>
+  </div>
+</dialog>
+
 <script>/*PDFLIB*/</script>
 <script>/*FONTKIT*/</script>
 <script>/*JSZIP*/</script>
@@ -199,6 +265,10 @@
 <script>/*AZW3*/</script>
 <script>/*KFX*/</script>
 <script>/*MANGA*/</script>
+<script>/*KINDLE*/</script>
+<script>/*TESSERACT*/</script>
+<script>/*SPELL*/</script>
+<script>/*OCR*/</script>
 <script>const FONT_DATA = /*FONTS*/{};</script>
 <script>
 (() => {
@@ -226,14 +296,17 @@
                 : 'Gera AZW3 (KF8), o formato que o Kindle abre por cabo USB: copie o arquivo para a pasta "documents" do Kindle. EPUB vira AZW3 direto; PDF vira EPUB primeiro (com as opções acima) e depois AZW3. O AZW3 não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Fontes embutidas no EPUB são descartadas (o Kindle usa as dele). Nome do arquivo: Título em Title Case - Subtítulo (Autor).'; } },
     manga: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'mangás',
              note: 'Transforma cada página do PDF numa página de imagem e gera um AZW3 de layout fixo — o formato que a Amazon usa para mangá e HQ: copie o arquivo para a pasta "documents" do Kindle. As páginas saem em tons de cinza, no tamanho exato da tela do aparelho escolhido, e as margens brancas da digitalização são aparadas. Páginas duplas podem ser partidas em duas, na ordem de leitura. Serve para PDF de página escaneada; PDF de texto corrido fica melhor em Para Kindle. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
+    ocr: { pick: 'Toque para escolher um ou mais PDFs escaneados', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
+           note: 'Faz OCR do PDF escaneado no próprio aparelho e gera um PDF com a mesma diagramação do EPUB → PDF: parágrafos, capítulos (pelos cabeçalhos das páginas), ilustrações como imagem e capa. Na primeira vez baixa o motor de OCR (cerca de 6 MB), que depois fica guardado para uso offline. É lento (alguns segundos por página; no celular, bem mais) e consome memória: prefira um livro por vez. Erros de reconhecimento continuam no texto. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
              note: 'Junta vários PDFs em um PDF, ou vários EPUBs em um EPUB, na ordem da lista. O PDF ganha um marcador por arquivo (com os marcadores originais dentro); o EPUB ganha um sumário com um item por livro. Dá para escolher arquivos de pastas diferentes em várias vezes.' },
   };
+  const syncOcrOpts = () => { $('optOCR').hidden = !(mode === 'ocr' || ((mode === 'p2e' || mode === 'kindle') && $('pOcr').checked)); };
   const kFmt = () => (($('kFmt') || {}).value || 'azw3');
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : 'e2p';
   Manga.DEVICES.forEach((d, i) => $('mDev').add(new Option(d.label, d.id, !i, !i)));
 
   let cancelled = false;
@@ -257,6 +330,11 @@
       items[i].querySelector('.n').textContent = dl.name;
       const a = document.createElement('a'); a.href = dl.url; a.download = dl.name; a.textContent = 'Baixar';
       s.appendChild(a);
+      if (/\.(azw3|kfx)$/i.test(dl.name)) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'sim'; b.textContent = 'Simular no Kindle';
+        b.addEventListener('click', () => { const r = results.find(x => x.url === dl.url); if (r) simOpen(r.bytes, dl.name); });
+        s.appendChild(b);
+      }
     }
   };
 
@@ -290,7 +368,7 @@
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
+    $('optE2P').hidden = m !== 'e2p' && m !== 'ocr'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; syncOcrOpts(); $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
     go.style.display = m === 'org' ? 'none' : '';   // no Organizar, os botões de salvar ficam junto das páginas
     if (m === 'org') $('orgOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
     listEl.hidden = m === 'org'; orgReset();
@@ -299,10 +377,11 @@
     $('note').textContent = MODES[m].note;
     files = []; showFiles();
   };
+  $('pOcr').addEventListener('change', syncOcrOpts);
   $('kFmt').addEventListener('change', () => { $('note').textContent = MODES[mode].note; showFiles(); });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -1059,13 +1138,117 @@
   }
   const shapeCorr = (A, B) => A.reduce((p, q, k) => p + q * B[k], 0);
 
+  // ---------- OCR (Tesseract.js, 100% local) ----------
+  let ocrWorker = null, ocrKey = '';
+  async function ocrStop() { if (ocrWorker) { try { await ocrWorker.terminate(); } catch (e) {} ocrWorker = null; ocrKey = ''; } }
+  const BEST_URL = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.1.0/';   // modelos "best" do Tesseract (só os dados do idioma; nada do seu arquivo sai do aparelho)
+  async function ocrStart(lang, say, quality = 'fast') {
+    if (typeof Tesseract === 'undefined') throw new Error('o motor de OCR não está nesta versão do app.');
+    const key = lang + '|' + quality;
+    if (ocrWorker && ocrKey === key) return ocrWorker;
+    await ocrStop();
+    const base = new URL('vendor/ocr/', location.href).href;
+    // sem errorHandler, uma falha ao baixar o idioma vira erro solto e o createWorker nunca termina (o app ficava parado)
+    const make = q => new Promise((ok, no) => Tesseract.createWorker(lang, 1, {
+      workerPath: base + 'worker.min.js', corePath: base + 'tesseract-core-simd-lstm.wasm.js', gzip: false,
+      langPath: q === 'best' ? BEST_URL : base, cacheMethod: q === 'best' ? 'write' : 'none',   // o modelo grande fica no cache do navegador (IndexedDB)
+      logger: m => { if (m.status && /^(loading|initializ)/.test(m.status)) say(q === 'best' && /language/.test(m.status) ? `Baixando o modelo de alta qualidade… ${Math.round((m.progress || 0) * 100)}%` : 'Preparando o OCR…'); },
+      errorHandler: e => no(new Error(String(e))),
+    }).then(ok, no));
+    try {
+      try { ocrWorker = await make(quality); }
+      catch (e) {
+        if (quality !== 'best') throw e;
+        console.warn('modelo de alta qualidade indisponível', e); say('Não consegui baixar o modelo de alta qualidade; usando o rápido…');
+        quality = 'fast'; ocrWorker = await make('fast');
+      }
+    } catch (e) {
+      ocrWorker = null;
+      throw new Error('não consegui iniciar o OCR. Ele usa os arquivos da pasta vendor/ocr: abra o app pelo endereço do site (ou por um servidor local), não direto do arquivo .html. ' + (e && e.message ? e.message : e));
+    }
+    ocrKey = lang + '|' + quality; return ocrWorker;
+  }
+  let spellDict = null;
+  async function loadSpell(say) {   // dicionário Hunspell pt-BR, carregado sob demanda (e guardado no cache do app)
+    if (spellDict) return spellDict;
+    say('Carregando o dicionário…');
+    const base = new URL('vendor/ocr/', location.href).href, get = async n => { const r = await fetch(base + n); if (!r.ok) throw new Error(n); return r.text(); };
+    const [aff, dic] = await Promise.all([get('pt.aff'), get('pt.dic')]);
+    return (spellDict = new Spell.Dict(aff, dic));
+  }
+  async function isScanned(doc) {   // amostra páginas espalhadas: sem texto algum = escaneado
+    let chars = 0; const N = doc.numPages;
+    for (let k = 1; k <= Math.min(6, N); k++) {
+      const pg = await doc.getPage(Math.max(1, Math.round(k * N / 6)));
+      const tc = await pg.getTextContent(); chars += tc.items.reduce((s, it) => s + (it.str || '').length, 0); pg.cleanup();
+    }
+    return chars < 25;
+  }
+  async function scanDocToEpub(doc, file, say) {
+    const lang = $('oLang').value, N = doc.numPages;
+    const rg = /^\s*(\d+)?\s*[-–]\s*(\d+)?\s*$/.exec($('oRange').value);
+    const first = Math.min(N, Math.max(1, rg && rg[1] ? +rg[1] : 1)), last = Math.min(N, Math.max(first, rg && rg[2] ? +rg[2] : N));
+    const cover = $('oCover').checked ? 1 : 0;
+    const worker = await ocrStart(lang, say, $('oQual').value);
+    let spell = null;
+    if ($('oFix').checked && lang === 'por' && typeof Spell !== 'undefined') { try { spell = await loadSpell(say); } catch (e) { console.warn('dicionário indisponível', e); } }
+    const pages = [], total = last - first + 1, t0 = Date.now(); let done = 0;
+    const { AnnotationMode } = pdfjsLib;
+    for (let i = 1; i <= N; i++) {
+      const inRange = i >= first && i <= last;
+      if (!inRange && i !== cover) { pages.push({ W: Ocr.PT_W, H: 842, rows: [], ink: 0, img: null }); continue; }
+      await tick();
+      if (inRange) {
+        const eta = done ? Math.round((Date.now() - t0) / done * (total - done) / 1000) : 0;
+        say(`OCR: página ${done + 1} de ${total}${eta ? ` · faltam ~${eta >= 90 ? Math.round(eta / 60) + ' min' : eta + ' s'}` : ''}`);
+      }
+      const page = await doc.getPage(i), v1 = page.getViewport({ scale: 1 });
+      const scale = Math.min(3.5, Math.max(1.5, 2000 / v1.width)), vp = page.getViewport({ scale });
+      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+      await page.render({ canvasContext: cx, viewport: vp, annotationMode: AnnotationMode.DISABLE }).promise;
+      const img = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9));
+      const sm = document.createElement('canvas'); sm.width = 200; sm.height = Math.max(1, Math.round(200 * cv.height / cv.width));
+      const sx = sm.getContext('2d', { willReadFrequently: true }); sx.drawImage(cv, 0, 0, sm.width, sm.height);
+      const px = sx.getImageData(0, 0, sm.width, sm.height).data; let dark = 0;
+      for (let k = 0; k < px.length; k += 4) if (px[k] * .299 + px[k + 1] * .587 + px[k + 2] * .114 < 120) dark++;
+      let rows = [];
+      if (inRange) {
+        const { data } = await worker.recognize(img, {}, { blocks: true });
+        rows = Ocr.rowsFromLines((data.blocks || []).flatMap(b => b.paragraphs.flatMap(p => p.lines)), cv.width);
+        done++;
+      }
+      pages.push({ W: Ocr.PT_W, H: cv.height * Ocr.PT_W / cv.width, rows, ink: dark / (px.length / 4), img });
+      cv.width = cv.height = sm.width = sm.height = 0; page.cleanup();
+    }
+    const title = $('oTitle').value.trim() || file.name.replace(/\.pdf$/i, '');
+    const author = $('oAuthor').value.trim();
+    const r = await Ocr.buildEpub(JSZip, pages, { title, author, lang: lang.startsWith('eng') ? 'en' : 'pt-BR', cover, first, last, spell }, async m => { say(m); await tick(); });
+    return { bytes: r.bytes, pages: N, chapters: r.chapters, title, authors: author ? [author] : [], uncertain: Ocr.countLow(pages), fixed: r.fixed };
+  }
+  async function scanToPdf(file, say) {
+    say('Lendo o arquivo…'); await tick(); initPdfjs();
+    let doc;
+    try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
+    catch (e) { throw new Error(e && e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'Não parece um PDF válido.'); }
+    try {
+      const ep = await scanDocToEpub(doc, file, say);
+      say('Gerando o PDF…'); await tick();
+      const r = await epubToPdf(new File([ep.bytes], 'livro.epub', { type: 'application/epub+zip' }), say);
+      return { ...r, title: ep.title, authors: ep.authors, uncertain: ep.uncertain, fixed: ep.fixed };
+    } finally { doc.destroy(); spellDict = null; await ocrStop(); }
+  }
+
   async function pdfToEpub(file, say) {
     say('Lendo o arquivo…'); await tick();
     initPdfjs();
     let doc;
     try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
     catch (e) { throw new Error(e && e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'Não parece um PDF válido.'); }
-    try { return await pdfDocToEpub(doc, file, say); } finally { doc.destroy(); }
+    try {
+      if ($('pOcr').checked && await isScanned(doc)) return await scanDocToEpub(doc, file, say);
+      return await pdfDocToEpub(doc, file, say);
+    } finally { doc.destroy(); spellDict = null; await ocrStop(); }
   }
 
   async function pdfDocToEpub(doc, file, say) {
@@ -2037,9 +2220,9 @@ ${spine.join('\n')}
         const uidRef = opf.documentElement.getAttribute('unique-identifier');
         const uidEl = uidRef && [...opf.querySelectorAll('metadata > identifier, dc\\:identifier')].find(e => e.getAttribute('id') === uidRef);
         const uid = uidEl ? uidEl.textContent.replace(/[ \u0009\u000d\u000a]/g, '') : '';
-        for (const ed of xml(await enc.async('string')).getElementsByTagName('EncryptedData')) {
-          const alg = (ed.getElementsByTagName('EncryptionMethod')[0] || {}).getAttribute?.('Algorithm') || '';
-          const ref = ed.getElementsByTagName('CipherReference')[0];
+        for (const ed of xml(await enc.async('string')).getElementsByTagNameNS('*', 'EncryptedData')) {
+          const alg = (ed.getElementsByTagNameNS('*', 'EncryptionMethod')[0] || {}).getAttribute?.('Algorithm') || '';
+          const ref = ed.getElementsByTagNameNS('*', 'CipherReference')[0];
           if (!ref) continue;
           if (alg !== 'http://www.idpf.org/2008/embedding' || !uid) throw fail('EPUB com proteção (DRM): não dá para juntar.');
           let u = ref.getAttribute('URI'); try { u = decodeURIComponent(u); } catch (e) {}
@@ -2478,7 +2661,7 @@ ${spine.join('\n')}
       say, tick,
       dev: Manga.deviceById($('mDev').value),
       rtl: $('mDir').value === 'rtl',
-      panels: +$('mPanels').value,
+      panels: $('mPanels').value === 'auto' ? 'auto' : +$('mPanels').value,
       split: $('mSplit').checked,
       crop: $('mCrop').checked,
       level: $('mLevel').checked,
@@ -2493,7 +2676,7 @@ ${spine.join('\n')}
   async function showOut(M) {
     if (!results.length) return;
     if (results.length > 1) {
-      say('Montando o ZIP…'); await tick();
+      say('Montando o ZIP…'); await new Promise(r => setTimeout(r, 0));   // sem tick(): depois de cancelar, os prontos ainda viram ZIP
       const z = new JSZip();
       results.forEach(r => z.file(r.name, r.bytes, { compression: 'STORE' }));
       zipUrl = URL.createObjectURL(await z.generateAsync({ type: 'blob', compression: 'STORE' }));
@@ -2508,7 +2691,7 @@ ${spine.join('\n')}
 
   async function runBatch() {
     busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
-    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert, manga: mangaConvert }[mode] || epubToPdf;
+    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert, manga: mangaConvert, ocr: scanToPdf }[mode] || epubToPdf;
     results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
     results = []; zipUrl = null; renderList();
     const used = new Map();
@@ -2522,8 +2705,10 @@ ${spine.join('\n')}
         name += '.' + M.ext;
         const url = URL.createObjectURL(new Blob([r.bytes], { type: M.mime }));
         results.push({ name, url, bytes: r.bytes, mime: M.mime });
-        const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}` : `${r.pages} páginas`;
-        setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}`, 'ok', { name, url });
+        const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}`
+          : `${r.pages} páginas${r.detected ? ` · quadrinhos detectados em ${r.detected}` : ''}` +
+            (r.looksLikeText ? ' · parece texto corrido, não quadrinho: a aba Para Kindle fica bem melhor' : '');
+        setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}${r.fixed ? ` · ${r.fixed} palavra(s) corrigida(s) pelo dicionário` : ''}${r.uncertain ? ` · ${r.uncertain} palavra(s) que o OCR leu com pouca certeza: vale revisar` : ''}`, 'ok', { name, url });
       } catch (e) {
         console.error(e);
         setItem(i, cancelled ? 'Cancelado' : 'Erro: ' + (e.message || e), 'err');
@@ -2580,7 +2765,138 @@ ${spine.join('\n')}
     }
     sepBtn.disabled = false; sepBtn.textContent = sepBtn.dataset.label;
   });
+  // ---------- simulador de Kindle (src/kindle.js lê o arquivo gerado; aqui é a tela) ----------
+  const sim = { book: null, page: 0, panel: -1, chap: 0, sub: 0, subs: 1, zoom: 1, frame: null };
+  const simEl = $('sim'), simScreen = $('simScreen');
+  Manga.DEVICES.forEach((d, i) => $('simDev').add(new Option(d.label, d.id, !i, !i)));
+  const simPct = v => (v * 100).toFixed(3) + '%';
+  async function simOpen(bytes, name) {
+    if (sim.book) sim.book.close();
+    try { sim.book = await Kindle.open(bytes); }
+    catch (e) { console.error(e); say('Não consegui abrir no simulador: ' + (e.message || e), true); return; }
+    const b = sim.book;
+    Object.assign(sim, { page: 0, panel: -1, chap: 0, sub: 0, zoom: 1 });
+    $('simTitle').textContent = `${b.title}${b.authors.length ? ' · ' + b.authors.join(', ') : ''} (${b.kind.toUpperCase()})`;
+    $('simDev').hidden = b.fixed;   // layout fixo: o tamanho da tela vem do próprio arquivo
+    $('simSmaller').hidden = $('simBigger').hidden = b.fixed;
+    $('simAreas').hidden = !b.fixed; $('simExit').hidden = true;
+    const toc = $('simToc'); toc.innerHTML = ''; toc.hidden = !b.toc.length || b.fixed;
+    b.toc.forEach((t, k) => toc.add(new Option('\u2003'.repeat(Math.min(3, t.depth)) + t.title, k)));
+    if (!simEl.open) simEl.showModal();
+    simRender();
+  }
+  function simSize() {
+    if (sim.book.fixed) { const p = sim.book.pages[0]; return [p.W, p.H]; }
+    const d = Manga.deviceById($('simDev').value); return [d.w, d.h];
+  }
+  function simRender() {
+    const b = sim.book, [W, H] = simSize();
+    simScreen.style.aspectRatio = `${W} / ${H}`;
+    simScreen.innerHTML = '';
+    if (b.fixed) return simFixed();
+    // texto: o capítulo numa tela do tamanho real do aparelho (em pixels), paginado em colunas como o Kindle, e reduzido para caber
+    const ch = b.chapters[sim.chap] || { html: '', css: '', attrs: '' }, m = Math.round(W * 0.06), fs = Math.round(H / 46 * sim.zoom);
+    const f = document.createElement('iframe');
+    f.setAttribute('sandbox', 'allow-same-origin'); f.setAttribute('aria-hidden', 'true'); f.setAttribute('tabindex', '-1');
+    f.width = W; f.height = H; f.style.width = W + 'px'; f.style.height = H + 'px';
+    f.style.transform = `scale(${simScreen.clientWidth / W})`;
+    const isKfx = b.kind === 'kfx';
+    f.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><style>${isKfx ? '' : ch.css}</style><style>
+      html { margin:0; padding:0; height:${H}px; overflow:hidden; background:#e9e7e1; }
+      body { margin:0 !important; padding:${m}px ${m}px; height:${H - 2 * m}px; box-sizing:content-box; column-width:${W - 2 * m}px; column-gap:${2 * m}px; column-fill:auto;
+        font:${fs}px/1.45 Bookerly, Georgia, 'Noto Serif', serif; color:#111; text-align:justify; hyphens:auto; overflow-wrap:break-word; }
+      img, svg { max-width:100% !important; max-height:${H - 2 * m}px !important; height:auto; break-inside:avoid; }
+      h1, h2, h3, h4 { break-after:avoid; text-align:center; } p { margin:0; text-indent:1.4em; } pre { white-space:pre-wrap; font-size:.8em; text-align:left; }
+      ${isKfx ? 'p.img { text-align:center; text-indent:0; } h1,h2,h3,h4 { margin:1em 0 .6em; }' : ''}
+      a { color:inherit; } </style></head><body${ch.attrs}>${ch.html}</body></html>`;
+    f.addEventListener('load', () => {
+      const doc = f.contentDocument, se = doc && doc.scrollingElement;
+      if (!se) return;
+      sim.subs = Math.max(1, Math.round(se.scrollWidth / W));
+      if (sim.sub < 0) sim.sub = sim.subs - 1;
+      sim.sub = Math.min(sim.sub, sim.subs - 1);
+      se.scrollLeft = sim.sub * W;
+      simInfo();
+    });
+    simScreen.appendChild(f); sim.frame = f;
+    for (const [side, dir] of [['left', -1], ['right', 1]]) {   // tocar nas bordas vira a página, como no aparelho
+      const t = document.createElement('button'); t.type = 'button'; t.className = 'kturn'; t.style[side] = 0; t.setAttribute('aria-label', dir > 0 ? 'Avançar' : 'Voltar');
+      t.addEventListener('click', () => simGo(dir * (b.rtl ? -1 : 1))); simScreen.appendChild(t);
+    }
+    simInfo();
+  }
+  function simFixed() {
+    const p = sim.book.pages[sim.page], img = document.createElement('img');
+    img.src = p.src; img.alt = 'Página ' + (sim.page + 1); img.draggable = false;
+    const place = (el, r) => { el.style.left = simPct(r.x); el.style.top = simPct(r.y); el.style.width = simPct(r.w); el.style.height = simPct(r.h); };
+    if (sim.panel < 0) {
+      place(img, p.box); simScreen.appendChild(img);
+      p.panels.forEach((q, i) => {
+        const h = document.createElement('button'); h.type = 'button'; h.className = 'khit'; h.title = 'Quadro ' + (i + 1); h.innerHTML = `<b>${i + 1}</b>`;
+        place(h, q.tap); h.addEventListener('click', e => { e.stopPropagation(); sim.panel = i; simRender(); });
+        simScreen.appendChild(h);
+      });
+    } else {
+      const q = p.panels[sim.panel], w = q.win; place(img, q.img); simScreen.appendChild(img);
+      for (const r of [{ x: 0, y: 0, w: 1, h: w.y }, { x: 0, y: w.y + w.h, w: 1, h: 1 - w.y - w.h }, { x: 0, y: w.y, w: w.x, h: w.h }, { x: w.x + w.w, y: w.y, w: 1 - w.x - w.w, h: w.h }]) {
+        if (r.w <= 0 || r.h <= 0) continue;
+        const d = document.createElement('div'); d.className = 'kmask'; place(d, r); simScreen.appendChild(d);
+      }
+    }
+    simInfo();
+  }
+  function simInfo() {
+    const b = sim.book;
+    if (b.fixed) {
+      const p = b.pages[sim.page], n = p.panels.length;
+      $('simCount').textContent = sim.panel < 0 ? `${sim.page + 1} / ${b.pages.length}` : `quadro ${sim.panel + 1} / ${n}`;
+      $('simHint').textContent = sim.panel >= 0 ? 'Avançar vai para o próximo quadro.' : n ? `${n} ${n > 1 ? 'quadros' : 'quadro'}: toque num deles para ampliar.` : 'Página sem painéis.';
+      $('simExit').hidden = sim.panel < 0;
+      $('simPrev').disabled = sim.panel < 0 && sim.page === 0; $('simNext').disabled = sim.panel < 0 && sim.page === b.pages.length - 1;
+    } else {
+      $('simCount').textContent = `${sim.chap + 1}.${sim.sub + 1} / ${b.chapters.length}`;
+      $('simHint').textContent = `Arquivo ${sim.chap + 1} de ${b.chapters.length}, tela ${sim.sub + 1} de ${sim.subs}. A diagramação é uma aproximação: o Kindle usa o motor e as fontes dele.`;
+      $('simPrev').disabled = sim.chap === 0 && sim.sub === 0; $('simNext').disabled = sim.chap === b.chapters.length - 1 && sim.sub >= sim.subs - 1;
+      let t = b.toc.findIndex(e => e.file === sim.chap); if (t < 0) t = b.toc.reduce((k, e, i) => e.file <= sim.chap ? i : k, -1); if (t >= 0) $('simToc').value = t;
+    }
+  }
+  function simGo(dir) {   // +1 = avança na leitura
+    const b = sim.book;
+    if (b.fixed) {
+      if (sim.panel >= 0) {
+        const k = sim.panel + dir;
+        if (k >= 0 && k < b.pages[sim.page].panels.length) sim.panel = k;
+        else { sim.panel = -1; if (dir > 0 && sim.page < b.pages.length - 1) sim.page++; }
+      } else if (sim.page + dir >= 0 && sim.page + dir < b.pages.length) sim.page += dir;
+      return simRender();
+    }
+    if (sim.sub + dir >= 0 && sim.sub + dir < sim.subs) { sim.sub += dir; sim.frame.contentDocument.scrollingElement.scrollLeft = sim.sub * simSize()[0]; return simInfo(); }
+    if (sim.chap + dir < 0 || sim.chap + dir >= b.chapters.length) return;
+    sim.chap += dir; sim.sub = dir > 0 ? 0 : -1; simRender();
+  }
+  $('simPrev').addEventListener('click', () => simGo(sim.book.rtl && !sim.book.fixed ? 1 : -1));
+  $('simNext').addEventListener('click', () => simGo(sim.book.rtl && !sim.book.fixed ? -1 : 1));
+  $('simExit').addEventListener('click', () => { sim.panel = -1; simRender(); });
+  simScreen.addEventListener('click', () => { if (sim.book && sim.book.fixed && sim.panel >= 0) { sim.panel = -1; simRender(); } });
+  $('simAreas').addEventListener('click', () => { const on = !simScreen.classList.contains('areas'); simScreen.classList.toggle('areas', on); $('simAreas').setAttribute('aria-pressed', String(on)); });
+  $('simDev').addEventListener('change', () => { sim.sub = 0; simRender(); });
+  $('simToc').addEventListener('change', () => { const t = sim.book.toc[+$('simToc').value]; if (t) { sim.chap = t.file; sim.sub = 0; simRender(); } });
+  $('simSmaller').addEventListener('click', () => { sim.zoom = Math.max(0.6, sim.zoom / 1.15); sim.sub = 0; simRender(); });
+  $('simBigger').addEventListener('click', () => { sim.zoom = Math.min(2.5, sim.zoom * 1.15); sim.sub = 0; simRender(); });
+  $('simClose').addEventListener('click', () => simEl.close());
+  simEl.addEventListener('close', () => { if (sim.book) { sim.book.close(); sim.book = null; } simScreen.innerHTML = ''; });
+  simEl.addEventListener('cancel', e => { if (sim.book && sim.book.fixed && sim.panel >= 0) { e.preventDefault(); sim.panel = -1; simRender(); } });   // Esc no quadro: sai do quadro
+  document.addEventListener('keydown', e => {
+    if (!sim.book || !simEl.open) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); simGo((e.key === 'ArrowRight' ? 1 : -1) * (sim.book.rtl && !sim.book.fixed ? -1 : 1)); }
+    else if (e.key === 'Escape' && sim.book.fixed && sim.panel >= 0) { e.preventDefault(); sim.panel = -1; simRender(); }
+  });
+
   go.addEventListener('click', () => ({ merge: runMerge, i2p: runImagesToPdf, p2i: runPdfToImages }[mode] || runBatch)());
+  // funções internas, para os testes automáticos (tests/unidade); o app não usa
+  window.__converterias = { titleCase, cleanAuthors, makeName, resolve, buildBlocks, modeOf, composeAcc, guessLang, findGutters, clusterLines,
+    buildRuns, finalizeLines, pageLines, drawnShapes, figureRegions, shapeVec, shapeCorr, kindOf, guessTitle, pdfOutline, writeOutline, jpegInfo,
+    imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs, simOpen, sim };
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
