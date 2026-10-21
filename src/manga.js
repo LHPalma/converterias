@@ -1,4 +1,4 @@
-// PDF -> mangá para Kindle: páginas em imagem num AZW3 (KF8) de layout fixo.
+// PDF ou CBZ -> mangá para Kindle: páginas em imagem num AZW3 (KF8) de layout fixo.
 // As resoluções são as dos perfis do Kindle Comic Converter; os metadados de layout
 // fixo saem no AZW3 (ver src/azw3.js), conferidos contra o kindlegen da Amazon.
 const Manga = (() => {
@@ -107,7 +107,23 @@ const Manga = (() => {
     const cv = canvas(W, H), cx = cv.getContext('2d');
     cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, H);
     await page.render({ canvasContext: cx, viewport: vp }).promise;
+    return canvasToImages(cv, W, H, dev, o);
+  }
 
+  // imagem de um CBZ: reduzida ao que a tela precisa (com folga para partir e aparar) e no mesmo caminho das páginas do PDF
+  async function bitmapToImages(bm, dev, o) {
+    const alvo = Math.max(dev.w, dev.h) * (o.split && bm.width > bm.height ? 2.4 : 1.4);
+    let k = Math.min(1, alvo / Math.max(bm.width, bm.height));
+    if (bm.width * bm.height * k * k > 40e6) k = Math.sqrt(40e6 / (bm.width * bm.height));
+    const W = Math.max(1, Math.round(bm.width * k)), H = Math.max(1, Math.round(bm.height * k));
+    const cv = canvas(W, H), cx = cv.getContext('2d');
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, H);
+    cx.imageSmoothingQuality = 'high'; cx.drawImage(bm, 0, 0, W, H);
+    return canvasToImages(cv, W, H, dev, o);
+  }
+
+  async function canvasToImages(cv, W, H, dev, o) {
+    const cx = cv.getContext('2d');
     const img = cx.getImageData(0, 0, W, H);
     toGray(img.data);
     if (o.level) autoLevel(img.data);
@@ -532,28 +548,20 @@ const Manga = (() => {
                 fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9,
                 panels: opt.panels === 'auto' || opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
 
-    say('Lendo o PDF…'); await tick();
-    let doc;
-    try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
-    catch (e) { throw new Error(e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'não consegui ler este PDF.'); }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const src = bytes[0] === 0x50 && bytes[1] === 0x4b ? await openCbz(bytes, say, tick) : await openPdf(bytes, say, tick);
 
     const pages = [];
     try {
-      let title = '', author = '';
-      try {   // o título de dentro do PDF vale mais que o nome do arquivo
-        const md = (await doc.getMetadata()).info || {};
-        if (md.Title) title = String(md.Title).trim();
-        if (md.Author) author = String(md.Author).trim();
-      } catch (e) { /* PDF sem metadados */ }
+      let title = src.title, author = src.author;   // o título de dentro do arquivo vale mais que o nome dele
       if (!title) title = (opt.title || '').trim() || 'Mangá';
       if (!author) author = (opt.author || '').trim();
 
-      for (let i = 0; i < doc.numPages; i++) {
-        say(`Página ${i + 1} de ${doc.numPages}…`); await tick();
-        const page = await doc.getPage(i + 1);
-        try { pages.push(...await pageToImages(page, dev, o)); } finally { page.cleanup(); }
+      for (let i = 0; i < src.count; i++) {
+        say(`Página ${i + 1} de ${src.count}…`); await tick();
+        pages.push(...await src.page(i, dev, o));
       }
-      if (!pages.length) throw new Error('o PDF não tem páginas.');
+      if (!pages.length) throw new Error(src.cbz ? 'o CBZ não tem imagens.' : 'o PDF não tem páginas.');
 
       say('Montando o livro…'); await tick();
       const uuid = (() => { const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = b[6] & 15 | 64; b[8] = b[8] & 63 | 128;
@@ -578,7 +586,44 @@ const Manga = (() => {
                   looksLikeText };
       if (opt._epub) r.epub = epub;   // para conferir o layout fixo num navegador
       return r;
-    } finally { doc.destroy(); }
+    } finally { src.close(); }
+  }
+
+  // ---------- de onde vêm as páginas: PDF (pdf.js) ou CBZ (ZIP de imagens, na ordem dos nomes) ----------
+  async function openPdf(bytes, say, tick) {
+    say('Lendo o PDF…'); await tick();
+    let doc;
+    try { doc = await pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise; }
+    catch (e) { throw new Error(e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'não consegui ler este PDF.'); }
+    let title = '', author = '';
+    try { const md = (await doc.getMetadata()).info || {}; title = String(md.Title || '').trim(); author = String(md.Author || '').trim(); }
+    catch (e) { /* PDF sem metadados */ }
+    return { title, author, count: doc.numPages, close: () => doc.destroy(),
+      page: async (i, dev, o) => { const pg = await doc.getPage(i + 1); try { return await pageToImages(pg, dev, o); } finally { pg.cleanup(); } } };
+  }
+  const IMG = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+  const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  async function openCbz(bytes, say, tick) {
+    say('Lendo o CBZ…'); await tick();
+    let zip;
+    try { zip = await JSZip.loadAsync(bytes); } catch (e) { throw new Error('não consegui ler este CBZ (o ZIP não abre).'); }
+    const names = Object.keys(zip.files).filter(n => !zip.files[n].dir && IMG.test(n) && !/(^|\/)(__MACOSX|\.)/.test(n)).sort(natural);
+    // ComicInfo.xml (padrão do ComicRack): título, número e autor
+    let title = '', author = '';
+    const ci = Object.keys(zip.files).find(n => /(^|\/)comicinfo\.xml$/i.test(n));
+    if (ci) try {
+      const d = new DOMParser().parseFromString(await zip.file(ci).async('string'), 'application/xml'), tag = t => ((d.getElementsByTagName(t)[0] || {}).textContent || '').trim();
+      const series = tag('Series'), num = tag('Number');
+      title = tag('Title') && series && tag('Title') !== series ? `${series}${num ? ' ' + num : ''} - ${tag('Title')}` : series ? series + (num ? ' ' + num : '') : tag('Title');
+      author = tag('Writer');
+    } catch (e) { /* ComicInfo ilegível: fica o nome do arquivo */ }
+    return { title, author, count: names.length, cbz: true, close: () => {},
+      page: async (i, dev, o) => {
+        const data = await zip.file(names[i]).async('uint8array');
+        let bm;
+        try { bm = await createImageBitmap(new Blob([data])); } catch (e) { return []; }   // imagem quebrada: pula a página
+        try { return await bitmapToImages(bm, dev, o); } finally { bm.close(); }
+      } };
   }
 
   return { convert, DEVICES, deviceById,
