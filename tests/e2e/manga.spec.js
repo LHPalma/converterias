@@ -130,3 +130,20 @@ test('erros: arquivo que não é PDF e PDF ilegível', async ({ page }) => {
   await expect(page.locator('#list .s.err').nth(0)).toHaveText('Erro: a aba Mangá recebe PDF.');
   await expect(page.locator('#list .s.err').nth(1)).toHaveText('Erro: não consegui ler este PDF.');
 });
+
+test('16 tons do e-ink: as páginas só têm cinzas múltiplos de 17 (desligado, ficam os tons intermediários)', async ({ page }) => {
+  const { inPage } = require('../apoio/app');
+  const comic = await A.comicPage(page);   // círculos com borda suavizada: muitos tons de cinza
+  const pdf = await A.makeImagePdf([comic], { size: [400, 600] });
+  const tones = async k => inPage(page, async png => {
+    const bm = await createImageBitmap(new Blob([png])), cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height;
+    const c = cv.getContext('2d'); c.drawImage(bm, 0, 0); const d = c.getImageData(0, 0, cv.width, cv.height).data, set = new Set();
+    for (let i = 0; i < d.length; i += 4) set.add(d[i]);
+    return [...set].sort((a, b) => a - b);
+  }, pages(k)[0]);
+  const on = await tones((await manga(page, pdf, p => p.check('#mPng'))).book);
+  expect(on.length).toBeLessThanOrEqual(16);
+  expect(on.every(v => v % 17 === 0)).toBe(true);
+  const off = await tones((await manga(page, pdf, async p => { await p.check('#mPng'); await p.uncheck('#mEink'); })).book);
+  expect(off.length).toBeGreaterThan(16);
+});

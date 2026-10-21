@@ -27,6 +27,7 @@ test('mangá: páginas, áreas de toque na ordem de leitura e quadro ampliado co
   await expect(page.locator('#simDev')).toBeHidden();             // o tamanho da tela vem do arquivo
   await expect(page.locator('.khit')).toHaveCount(5);
   expect(await page.locator('#simScreen').evaluate(e => getComputedStyle(e).aspectRatio)).toBe('1072 / 1448');
+  expect(await page.locator('#simScreen').evaluate(e => getComputedStyle(e).filter)).toMatch(/grayscale\(1\) url\("?#simEink"?\)/);   // tela de 16 tons
   // ordem: a fileira de cima da direita para a esquerda
   const boxes = await page.locator('.khit').evaluateAll(b => b.map(x => x.getBoundingClientRect()).map(r => [Math.round(r.x), Math.round(r.y)]));
   expect(boxes[0][0]).toBeGreaterThan(boxes[1][0]);

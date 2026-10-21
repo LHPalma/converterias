@@ -69,7 +69,7 @@
   #sim select { width:auto; padding:6px; font-size:.85rem; }
   #simDev { max-width:100%; }
   .kbezel { background:#23241f; border-radius:14px; padding:14px 12px 26px; width:100%; max-width:420px; }
-  .kscreen { position:relative; width:100%; background:#e9e7e1; overflow:hidden; user-select:none; -webkit-user-select:none; filter:grayscale(1); }
+  .kscreen { position:relative; width:100%; background:#e9e7e1; overflow:hidden; user-select:none; -webkit-user-select:none; filter:grayscale(1) url(#simEink); }
   .kscreen.color { filter:none; }
   .kscreen > img { position:absolute; display:block; }
   .kscreen .kmask { position:absolute; background:#e9e7e1; }
@@ -148,6 +148,7 @@
     <label class="chk"><input id="mSplit" type="checkbox" checked> Partir páginas duplas em duas</label>
     <label class="chk"><input id="mCrop" type="checkbox" checked> Aparar as margens brancas</label>
     <label class="chk"><input id="mLevel" type="checkbox"> Reforçar o contraste</label>
+    <label class="chk"><input id="mEink" type="checkbox" checked> Reduzir aos 16 tons de cinza do e-ink</label>
     <label class="chk"><input id="mPng" type="checkbox"> PNG em vez de JPEG (melhor, bem maior)</label>
   </div>
 
@@ -241,6 +242,12 @@
 </main>
 
 <dialog id="sim" aria-label="Simulador de Kindle">
+  <!-- a tela e-ink só mostra 16 tons de cinza: o filtro arredonda cada pixel para o tom mais próximo -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="simEink" color-interpolation-filters="sRGB"><feComponentTransfer>
+    <feFuncR type="discrete" tableValues="0 .0667 .1333 .2 .2667 .3333 .4 .4667 .5333 .6 .6667 .7333 .8 .8667 .9333 1"/>
+    <feFuncG type="discrete" tableValues="0 .0667 .1333 .2 .2667 .3333 .4 .4667 .5333 .6 .6667 .7333 .8 .8667 .9333 1"/>
+    <feFuncB type="discrete" tableValues="0 .0667 .1333 .2 .2667 .3333 .4 .4667 .5333 .6 .6667 .7333 .8 .8667 .9333 1"/>
+  </feComponentTransfer></filter></svg>
   <div class="shead"><strong id="simTitle">Simulador de Kindle</strong><button type="button" class="alt" id="simClose">Fechar</button></div>
   <div class="sbody">
     <div class="srow"><select id="simDev" aria-label="Aparelho"></select><select id="simToc" aria-label="Sumário"></select></div>
@@ -1615,6 +1622,15 @@ const Manga = (() => {
     for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lut[d[i]];
   }
 
+  // os 16 tons de cinza que a tela e-ink mostra (0, 17, 34 … 255), como o Kindle Comic Converter faz. Feito na
+  // imagem já no tamanho da tela: o redimensionamento cria tons intermediários e desfaria a redução. Sem pontilhado
+  // (dithering): com JPEG o pontilhado vira ruído e aumenta o arquivo, e em traço de mangá ele borra as retículas.
+  function toEink(d) {
+    const lut = new Uint8Array(256);
+    for (let v = 0; v < 256; v++) lut[v] = Math.round(v / 17) * 17;
+    for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lut[d[i]];
+  }
+
   // caixa do conteúdo: descarta a moldura branca das digitalizações
   function contentBox(d, w, h) {
     const DARK = 232, MIN = Math.max(2, Math.round(w * 0.002));
@@ -1639,10 +1655,12 @@ const Manga = (() => {
     cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
     cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
     cx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
+    let px = null;
+    if (o.eink) { px = cx.getImageData(0, 0, w, h); toEink(px.data); cx.putImageData(px, 0, 0); }
     // a detecção roda na imagem final: as coordenadas já saem no espaço da página
     let det = null;
     if (o.panels === 'auto') {
-      const d = cx.getImageData(0, 0, w, h).data;
+      const d = (px || cx.getImageData(0, 0, w, h)).data;
       const g = new Uint8Array(w * h);
       for (let i = 0, j = 0; i < d.length; i += 4, j++) g[j] = d[i];
       det = detectBest(g, w, h, { rtl: o.rtl });
@@ -2089,7 +2107,7 @@ const Manga = (() => {
   async function convert(file, opt = {}) {
     const say = opt.say || (() => {}), tick = opt.tick || (() => Promise.resolve());
     const dev = opt.dev || DEVICES[0];
-    const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level,
+    const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level, eink: opt.eink !== false,
                 fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9,
                 panels: opt.panels === 'auto' || opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
 
@@ -2144,7 +2162,7 @@ const Manga = (() => {
 
   return { convert, DEVICES, deviceById,
            _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml,
-           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu, _toGray: toGray, _detectedHtml: detectedHtml, _buildEpub: buildEpub };
+           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu, _toGray: toGray, _toEink: toEink, _detectedHtml: detectedHtml, _buildEpub: buildEpub };
 })();
 </script>
 <script>// Simulador de Kindle: lê o AZW3 (KF8) ou o KFX que o app gerou e monta o que o aparelho mostra.
@@ -5259,6 +5277,7 @@ ${spine.join('\n')}
       crop: $('mCrop').checked,
       level: $('mLevel').checked,
       png: $('mPng').checked,
+      eink: $('mEink').checked,
       title: stem(file),
     });
   }

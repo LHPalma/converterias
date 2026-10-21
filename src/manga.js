@@ -43,6 +43,15 @@ const Manga = (() => {
     for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lut[d[i]];
   }
 
+  // os 16 tons de cinza que a tela e-ink mostra (0, 17, 34 … 255), como o Kindle Comic Converter faz. Feito na
+  // imagem já no tamanho da tela: o redimensionamento cria tons intermediários e desfaria a redução. Sem pontilhado
+  // (dithering): com JPEG o pontilhado vira ruído e aumenta o arquivo, e em traço de mangá ele borra as retículas.
+  function toEink(d) {
+    const lut = new Uint8Array(256);
+    for (let v = 0; v < 256; v++) lut[v] = Math.round(v / 17) * 17;
+    for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lut[d[i]];
+  }
+
   // caixa do conteúdo: descarta a moldura branca das digitalizações
   function contentBox(d, w, h) {
     const DARK = 232, MIN = Math.max(2, Math.round(w * 0.002));
@@ -67,10 +76,12 @@ const Manga = (() => {
     cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
     cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
     cx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
+    let px = null;
+    if (o.eink) { px = cx.getImageData(0, 0, w, h); toEink(px.data); cx.putImageData(px, 0, 0); }
     // a detecção roda na imagem final: as coordenadas já saem no espaço da página
     let det = null;
     if (o.panels === 'auto') {
-      const d = cx.getImageData(0, 0, w, h).data;
+      const d = (px || cx.getImageData(0, 0, w, h)).data;
       const g = new Uint8Array(w * h);
       for (let i = 0, j = 0; i < d.length; i += 4, j++) g[j] = d[i];
       det = detectBest(g, w, h, { rtl: o.rtl });
@@ -517,7 +528,7 @@ const Manga = (() => {
   async function convert(file, opt = {}) {
     const say = opt.say || (() => {}), tick = opt.tick || (() => Promise.resolve());
     const dev = opt.dev || DEVICES[0];
-    const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level,
+    const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level, eink: opt.eink !== false,
                 fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9,
                 panels: opt.panels === 'auto' || opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
 
@@ -572,5 +583,5 @@ const Manga = (() => {
 
   return { convert, DEVICES, deviceById,
            _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml,
-           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu, _toGray: toGray, _detectedHtml: detectedHtml, _buildEpub: buildEpub };
+           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu, _toGray: toGray, _toEink: toEink, _detectedHtml: detectedHtml, _buildEpub: buildEpub };
 })();

@@ -69,7 +69,7 @@
   #sim select { width:auto; padding:6px; font-size:.85rem; }
   #simDev { max-width:100%; }
   .kbezel { background:#23241f; border-radius:14px; padding:14px 12px 26px; width:100%; max-width:420px; }
-  .kscreen { position:relative; width:100%; background:#e9e7e1; overflow:hidden; user-select:none; -webkit-user-select:none; filter:grayscale(1); }
+  .kscreen { position:relative; width:100%; background:#e9e7e1; overflow:hidden; user-select:none; -webkit-user-select:none; filter:grayscale(1) url(#simEink); }
   .kscreen.color { filter:none; }
   .kscreen > img { position:absolute; display:block; }
   .kscreen .kmask { position:absolute; background:#e9e7e1; }
@@ -148,6 +148,7 @@
     <label class="chk"><input id="mSplit" type="checkbox" checked> Partir páginas duplas em duas</label>
     <label class="chk"><input id="mCrop" type="checkbox" checked> Aparar as margens brancas</label>
     <label class="chk"><input id="mLevel" type="checkbox"> Reforçar o contraste</label>
+    <label class="chk"><input id="mEink" type="checkbox" checked> Reduzir aos 16 tons de cinza do e-ink</label>
     <label class="chk"><input id="mPng" type="checkbox"> PNG em vez de JPEG (melhor, bem maior)</label>
   </div>
 
@@ -241,6 +242,12 @@
 </main>
 
 <dialog id="sim" aria-label="Simulador de Kindle">
+  <!-- a tela e-ink só mostra 16 tons de cinza: o filtro arredonda cada pixel para o tom mais próximo -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="simEink" color-interpolation-filters="sRGB"><feComponentTransfer>
+    <feFuncR type="discrete" tableValues="0 .0667 .1333 .2 .2667 .3333 .4 .4667 .5333 .6 .6667 .7333 .8 .8667 .9333 1"/>
+    <feFuncG type="discrete" tableValues="0 .0667 .1333 .2 .2667 .3333 .4 .4667 .5333 .6 .6667 .7333 .8 .8667 .9333 1"/>
+    <feFuncB type="discrete" tableValues="0 .0667 .1333 .2 .2667 .3333 .4 .4667 .5333 .6 .6667 .7333 .8 .8667 .9333 1"/>
+  </feComponentTransfer></filter></svg>
   <div class="shead"><strong id="simTitle">Simulador de Kindle</strong><button type="button" class="alt" id="simClose">Fechar</button></div>
   <div class="sbody">
     <div class="srow"><select id="simDev" aria-label="Aparelho"></select><select id="simToc" aria-label="Sumário"></select></div>
@@ -2666,6 +2673,7 @@ ${spine.join('\n')}
       crop: $('mCrop').checked,
       level: $('mLevel').checked,
       png: $('mPng').checked,
+      eink: $('mEink').checked,
       title: stem(file),
     });
   }
