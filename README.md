@@ -17,6 +17,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
 | **Mangá** (PDF escaneado → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
+| **PDF escaneado → PDF** com OCR, no padrão do EPUB → PDF (linha de comando, em `tools/`) | disponível |
 
 ## EPUB → PDF
 
@@ -176,3 +177,23 @@ Use apenas com livros que você tem direito de converter. O projeto não inclui 
 ## Licença
 
 MIT (ver [LICENSE](LICENSE)). Bibliotecas e fontes de terceiros mantêm as próprias licenças.
+
+## PDF escaneado → PDF (ferramenta local)
+
+O app roda 100% no navegador e não faz OCR. Para um livro **escaneado**, a ferramenta `tools/scan2pdf.py` faz o OCR no seu computador, reconstrói o livro e converte com o **mesmo motor do EPUB → PDF** (o próprio `index.html`, aberto num Chromium sem interface), então o PDF sai com a diagramação de qualquer EPUB convertido pelo app.
+
+```bash
+python3 tools/scan2pdf.py livro-escaneado.pdf --title "Título - Subtítulo" --author "Autor" -o saida/
+```
+
+Requisitos: `ocrmypdf`, `tesseract` com o idioma do livro (`por` para português), `poppler-utils`, `Pillow` e `playwright` (com Chromium). Se o Playwright não achar o navegador, aponte-o com `CHROMIUM_PATH=/caminho/do/chromium`.
+
+O que ele faz:
+
+- **OCR** com `ocrmypdf` (`--lang`, padrão `por+eng`); com `--no-ocr` usa o texto que o PDF já tem.
+- **Parágrafos** reconstruídos pela margem e pelo recuo, com hifenização de fim de linha desfeita; cabeçalhos correntes, números de página e ruídos do OCR são descartados.
+- **Capítulos** detectados pelos cabeçalhos correntes (o título vira o do cabeçalho). Para controlar à mão, use `--chapters capitulos.json` com `[{"title": "...", "start": 6, "end": 13, "opener": 6}]` (páginas contando de 1; `opener` é a página de abertura, cujo título decorado o OCR costuma ler errado).
+- **Ilustrações, gráficos e páginas com pouco texto** entram como imagem, aparadas das bordas do scan; a **capa** é a página 1 (`--cover-page`, `0` para não usar).
+- Nome do arquivo e metadados seguem o padrão do app (`--title` separa o subtítulo com ` - `). Opções úteis: `--first`/`--last` (páginas de conteúdo), `--keep-epub` (guarda também o EPUB montado).
+
+Limitações: erros de reconhecimento do OCR continuam no texto (revise o resultado); tabelas e gráficos viram imagem; livros de várias colunas ou com layout muito livre podem sair com parágrafos errados.
