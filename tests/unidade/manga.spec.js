@@ -118,3 +118,16 @@ test('convert direto: título padrão, PDF ilegível e o EPUB intermediário', a
   }, pdf, Buffer.from('nada'));
   expect(r).toEqual({ title: 'Mangá', pages: 1, panels: 0, epub: true, err: 'não consegui ler este PDF.' });
 });
+
+test('toEink: arredonda para os 16 tons de cinza do e-ink', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const d = new Uint8ClampedArray(256 * 4); for (let v = 0; v < 256; v++) d.set([v, v, v, 255], v * 4);
+    Manga._toEink(d);
+    const out = []; for (let v = 0; v < 256; v++) out.push(d[v * 4]);
+    return { levels: [...new Set(out)], at: [0, 8, 9, 25, 26, 128, 246, 247, 255].map(v => out[v]), alpha: d[3], same: out.every((x, v) => d[v * 4 + 1] === x && d[v * 4 + 2] === x) };
+  });
+  expect(r.levels).toEqual(Array.from({ length: 16 }, (_, k) => k * 17));
+  expect(r.at).toEqual([0, 0, 17, 17, 34, 136, 238, 255, 255]);   // o tom mais próximo
+  expect(r.alpha).toBe(255);
+  expect(r.same).toBe(true);
+});
