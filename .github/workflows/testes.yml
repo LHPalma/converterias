@@ -1,0 +1,65 @@
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-24.04   # o Playwright 1.56 ainda não instala o Chromium no Ubuntu 26.04 (o ubuntu-latest atual)
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: index.html em dia com src/
+        run: python3 build.py --check
+      - name: Testes (no index.html publicado)
+        run: npx playwright test
+      - name: Capturas do simulador de Kindle
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulador
+          path: simulador/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: relatorio-playwright
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  cobertura:
+    runs-on: ubuntu-24.04   # o Playwright 1.56 ainda não instala o Chromium no Ubuntu 26.04 (o ubuntu-latest atual)
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Testes com cobertura de código
+        run: npm run coverage
+      - name: Resumo da cobertura
+        if: always()
+        run: |
+          node -e "const s=require('./coverage/coverage-summary.json');const r=['| Arquivo | Comandos | Funções | Ramos |','|---|---|---|---|'];for(const [f,v] of Object.entries(s))r.push('| '+(f==='total'?'**Total**':f.replace(/^.*?src\//,'src/'))+' | '+v.statements.pct+'% | '+v.functions.pct+'% | '+v.branches.pct+'% |');require('fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY,r.join('\n')+'\n')"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura
+          path: coverage/
+          retention-days: 14

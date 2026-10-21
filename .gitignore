@@ -3,3 +3,10 @@
 *.zip
 __pycache__/
 .DS_Store
+node_modules/
+test-results/
+playwright-report/
+coverage/
+cobertura.html
+cobertura-app.js
+simulador/

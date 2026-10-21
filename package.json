@@ -1,0 +1,15 @@
+{
+  "name": "converterias",
+  "private": true,
+  "description": "Testes de regressão do Converterias (o app em si não precisa de Node: é só o index.html).",
+  "scripts": {
+    "build": "python3 build.py",
+    "test": "python3 build.py --check && playwright test",
+    "test:ui": "playwright test --ui",
+    "coverage": "COVERAGE=1 playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "monocart-coverage-reports": "^2.12.12"
+  }
+}
