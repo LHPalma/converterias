@@ -25,7 +25,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 
 ### Como usar
 
-1. Abra a página (GitHub Pages deste repositório) e, se quiser, instale como app (menu do Chrome → *Adicionar à tela inicial*). Depois da primeira visita ela abre **offline**.
+1. Abra a página (GitHub Pages deste repositório) e, se quiser, instale como app (menu do Chrome → *Adicionar à tela inicial*). Depois da primeira visita ela abre **offline**. Quando sai uma versão nova, aparece **Nova versão do app disponível** no pé da página: toque em *Atualizar*.
 2. Toque na área pontilhada e escolha um ou mais `.epub`.
 3. Ajuste tamanho da página, fonte e margens (os padrões reproduzem um PDF de referência: Carta, 15 pt, margens 25,5 / 27,2 / 31 mm).
 4. **Converter** → **Baixar tudo em um ZIP**, **Baixar todos os PDFs (sem ZIP)** ou **Compartilhar PDFs…** (quando o navegador permite).

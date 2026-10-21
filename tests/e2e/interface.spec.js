@@ -140,4 +140,26 @@ base.test.describe('offline', () => {
     await expect(page.locator('#status')).toHaveText(/^Pronto: 1 convertido/);
     await context.setOffline(false);
   });
+
+  base.test('versão nova publicada: avisa e recarrega no toque; na primeira visita, não avisa', async ({ page }, info) => {
+    test.skip(!!process.env.COVERAGE, 'o service worker guarda o index.html, não a página de cobertura');
+    // uma cópia do app numa pasta própria, para "publicar" um sw.js novo sem mexer no do repositório
+    const root = path.join(__dirname, '..', '..'), dir = info.outputPath('app');
+    fs.mkdirSync(path.join(dir, 'icons'), { recursive: true });
+    for (const f of ['index.html', 'sw.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png']) fs.copyFileSync(path.join(root, f), path.join(dir, f));
+    const url = path.relative(root, dir).split(path.sep).join('/') + '/index.html';
+    await page.goto(url);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await expect(page.locator('#upd')).toBeHidden();                  // primeira visita: o service worker só começa a cuidar da página
+    await page.reload();
+    expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+    const sw = path.join(dir, 'sw.js');
+    fs.writeFileSync(sw, fs.readFileSync(sw, 'utf8').replace(/converterias-v\d+/, 'converterias-v999'));   // versão nova no servidor
+    await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => r.update()));
+    await expect(page.locator('#upd')).toBeVisible();
+    await expect(page.locator('#upd')).toContainText('Nova versão do app');
+    await page.click('#updBtn');
+    await expect(page.locator('#upd')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => caches.keys())).toEqual(['converterias-v999']);
+  });
 });
