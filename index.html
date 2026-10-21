@@ -144,6 +144,11 @@
       <option value="eng">Inglês</option>
       <option value="por+eng">Português e inglês</option>
     </select>
+    <label for="oQual">Qualidade do OCR</label>
+    <select id="oQual">
+      <option value="fast">Rápida (já vem no app)</option>
+      <option value="best">Alta qualidade (baixa 8 a 15 MB da internet na primeira vez; mais lenta)</option>
+    </select>
     <label for="oRange">Páginas de conteúdo (opcional, ex.: 6-120)</label>
     <input id="oRange" type="text" inputmode="numeric" autocomplete="off" placeholder="Todas">
     <label class="chk"><input id="oCover" type="checkbox" checked> Primeira página como capa</label>
@@ -3012,21 +3017,30 @@ const Ocr = (() => {
   // ---------- OCR (Tesseract.js, 100% local) ----------
   let ocrWorker = null, ocrKey = '';
   async function ocrStop() { if (ocrWorker) { try { await ocrWorker.terminate(); } catch (e) {} ocrWorker = null; ocrKey = ''; } }
-  async function ocrStart(lang, say) {
+  const BEST_URL = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.1.0/';   // modelos "best" do Tesseract (só os dados do idioma; nada do seu arquivo sai do aparelho)
+  async function ocrStart(lang, say, quality = 'fast') {
     if (typeof Tesseract === 'undefined') throw new Error('o motor de OCR não está nesta versão do app.');
-    if (ocrWorker && ocrKey === lang) return ocrWorker;
+    const key = lang + '|' + quality;
+    if (ocrWorker && ocrKey === key) return ocrWorker;
     await ocrStop();
     const base = new URL('vendor/ocr/', location.href).href;
+    const make = q => Tesseract.createWorker(lang, 1, {
+      workerPath: base + 'worker.min.js', corePath: base + 'tesseract-core-simd-lstm.wasm.js', gzip: false,
+      langPath: q === 'best' ? BEST_URL : base, cacheMethod: q === 'best' ? 'write' : 'none',   // o modelo grande fica no cache do navegador (IndexedDB)
+      logger: m => { if (m.status && /^(loading|initializ)/.test(m.status)) say(q === 'best' && /language/.test(m.status) ? `Baixando o modelo de alta qualidade… ${Math.round((m.progress || 0) * 100)}%` : 'Preparando o OCR…'); }
+    });
     try {
-      ocrWorker = await Tesseract.createWorker(lang, 1, {
-        workerPath: base + 'worker.min.js', corePath: base + 'tesseract-core-simd-lstm.wasm.js', langPath: base, gzip: false, cacheMethod: 'none',
-        logger: m => { if (m.status && /^(loading|initializ)/.test(m.status)) say('Preparando o OCR…'); }
-      });
+      try { ocrWorker = await make(quality); }
+      catch (e) {
+        if (quality !== 'best') throw e;
+        console.warn('modelo de alta qualidade indisponível', e); say('Não consegui baixar o modelo de alta qualidade; usando o rápido…');
+        quality = 'fast'; ocrWorker = await make('fast');
+      }
     } catch (e) {
       ocrWorker = null;
       throw new Error('não consegui iniciar o OCR. Ele usa os arquivos da pasta vendor/ocr: abra o app pelo endereço do site (ou por um servidor local), não direto do arquivo .html. ' + (e && e.message ? e.message : e));
     }
-    ocrKey = lang; return ocrWorker;
+    ocrKey = lang + '|' + quality; return ocrWorker;
   }
   let spellDict = null;
   async function loadSpell(say) {   // dicionário Hunspell pt-BR, carregado sob demanda (e guardado no cache do app)
@@ -3049,7 +3063,7 @@ const Ocr = (() => {
     const rg = /^\s*(\d+)?\s*[-–]\s*(\d+)?\s*$/.exec($('oRange').value);
     const first = Math.min(N, Math.max(1, rg && rg[1] ? +rg[1] : 1)), last = Math.min(N, Math.max(first, rg && rg[2] ? +rg[2] : N));
     const cover = $('oCover').checked ? 1 : 0;
-    const worker = await ocrStart(lang, say);
+    const worker = await ocrStart(lang, say, $('oQual').value);
     let spell = null;
     if ($('oFix').checked && lang === 'por' && typeof Spell !== 'undefined') { try { spell = await loadSpell(say); } catch (e) { console.warn('dicionário indisponível', e); } }
     const pages = [], total = last - first + 1, t0 = Date.now(); let done = 0;
