@@ -193,6 +193,8 @@ PDF de livro escaneado vira PDF com texto de verdade, na mesma diagramação do 
 - Desenha cada página com o pdf.js e lê o texto com o Tesseract (português, inglês ou os dois).
 - **Parágrafos** reconstruídos pela margem e pelo recuo, com a hifenização de fim de linha desfeita; cabeçalhos correntes e números de página saem.
 - **Capítulos** detectados pelos cabeçalhos correntes (o título é o do cabeçalho); a página de abertura e a ilustração colada nela entram no capítulo novo.
+- **"Capítulo N"**: se o livro tem Sumário impresso com "Capítulo 1, 2…", o rótulo vira um título acima do nome do capítulo (pelo título ou, se o OCR errou o título, pela ordem). Prefácio, Posfácio e afins ficam sem número.
+- **Notas e Referências** (também *Referências* e *Bibliografia*) no topo de uma página viram um capítulo próprio. Cada nota começa no número; endereços partidos em várias linhas são remontados (sem espaços, com o hífen certo) e `hrtps://` volta a ser `https://`.
 - **Qualidade do OCR**: *Rápida* usa o modelo que já vem no app. *Alta qualidade* usa os modelos `best` do Tesseract (8 a 15 MB por idioma, bem mais lentos e mais precisos), baixados do jsDelivr só na primeira vez e guardados no navegador; só os dados do idioma são baixados, o seu arquivo nunca sai do aparelho. Sem internet na primeira vez, o app volta para o modelo rápido.
 - **Ilustrações, gráficos e páginas com pouco texto** entram como imagem, sem as bordas do scan; a primeira página vira a capa.
 - **Confiança por palavra**: linhas-lixo do OCR (borda do scan, manchas) são descartadas e o resultado avisa quantas palavras foram lidas com pouca certeza.

@@ -17,8 +17,10 @@ const Ocr = (() => {
     return 2 * hit / (a.length - 1 + b.length - 1);
   };
 
-  const URL_OPEN = /(?:https?:\/\/|www\.|\bh[rt][tcp]{1,2}s?:\/\/)\S*$/i;   // parágrafo que termina no meio de um endereço
-  const fixUrls = t => t.replace(/\bh[rt][tcp]{1,2}s?:\/\//gi, m => /^https?:/i.test(m) ? m : 'https://');   // "hrtps://" -> "https://"
+  const NOTES_T = /^(notas( e referencias)?|referencias( bibliograficas)?|bibliografia)$/;
+  const URL_OPEN = /(?:https?:\/\/|www\.|\bh[ert][rtcp]{1,2}s?:\/\/)\S*$/i;   // parágrafo que termina no meio de um endereço
+  const URL_ANY = /(?:https?:\/\/|www\.|\bh[ert][rtcp]{1,2}s?:\/\/)/i;
+  const fixUrls = t => t.replace(/\bh[ert][rtcp]{1,2}s?:\/\//gi, m => /^https?:/i.test(m) ? m : 'https://');   // "hrtps://" -> "https://"
   const LOW_WORD = 70;    // palavra com confiança abaixo disso é "duvidosa"
   const JUNK_LINE = 60;   // linha cuja confiança média (ponderada pelo tamanho) fica abaixo disso é lixo do OCR
 
@@ -55,7 +57,7 @@ const Ocr = (() => {
     }
     rawHeader(i) {
       const r = this.p[i].rows[0];
-      if (r && r.y < .09 * this.p[i].H && isUpper(r.t) && r.t.length > 3 && r.t.length <= 70) return r.t;
+      if (r && r.y < .09 * this.p[i].H && isUpper(r.t) && r.t.length > 3 && r.t.length <= 70) return r.t.replace(/[|¦!]+/g, '').replace(/\s+/g, ' ').trim();   // sem a barra de margem lida como letra
       return null;
     }
     bodyRows(i, opener) {
@@ -118,7 +120,8 @@ const Ocr = (() => {
           const m = /^cap[ií]tulo\s*(\d+|[IVXLC]+)\b[\s:.-]*(.*)$/i.exec(rows[k].t.trim());
           if (!m) continue;
           let title = m[2].trim();
-          if (norm(title).length < 3 && rows[k + 1]) title = rows[k + 1].t;
+          if (norm(title).length < 3 && rows[k + 1] && !/^cap[ií]tulo\s*(\d+|[IVXLC]+)\b/i.test(rows[k + 1].t.trim())) title = rows[k + 1].t;
+          else if (norm(title).length < 3) title = '';
           out.push({ label: 'Capítulo ' + m[1], title: title.replace(/[.\s…·_-]{2,}\s*\d*\s*$/, '').replace(/\s+\d+$/, '').trim() });
         }
         if (out.length) break;
@@ -126,19 +129,29 @@ const Ocr = (() => {
       return out;
     }
     labelChapters(chs) {
-      const toc = this.tocEntries(), used = new Set();
-      for (const e of toc) {
+      const toc = this.tocEntries(), used = new Set(), num = e => +(/\d+$/.exec(e.label) || [NaN])[0], anchors = [];
+      for (const e of toc) {   // 1) pelo título (quando o OCR leu o título do Sumário)
         let best = -1, bs = 0;
         chs.forEach((c, k) => { if (used.has(k)) return; const d = dice(norm(c.title), norm(e.title)); if (d > bs) { bs = d; best = k; } });
-        if (best >= 0 && bs >= .45) { chs[best].label = e.label; used.add(best); }
+        if (best >= 0 && bs >= .45) { chs[best].label = e.label; used.add(best); if (!isNaN(num(e))) anchors.push([num(e), best]); }
+      }
+      if (anchors.length) {      // 2) o resto pela ordem: o capítulo N fica N - n0 posições depois da âncora
+        const [n0, k0] = anchors[0];
+        for (const e of toc) { const k = k0 + (num(e) - n0); if (!isNaN(num(e)) && chs[k] && !chs[k].label && !used.has(k)) { chs[k].label = e.label; used.add(k); } }
       }
       return chs;
     }
 
     /* [{ t: 'p', text } | { t: 'img', i }] */
-    paragraphs(sect, openers) {
+    paragraphs(sect, openers, notes) {
       const blocks = []; let cur = null, lastShort = false;
-      const flush = () => { if (cur) { blocks.push({ t: 'p', text: cur }); cur = null; } };
+      const flush = () => {
+        if (cur) {
+          if (notes) cur = cur.replace(/^(\d{1,3}\s+)(\S*(?:https?|h[ert][rtcp]{1,2}s?):\/\/.*)$/i, (m, a, b) => a + b.replace(/\s+/g, '').replace(/\bg\]\./, 'g1.'));   // nota de endereço: sem espaços dentro dele
+          blocks.push({ t: 'p', text: cur });
+        }
+        cur = null;
+      };
       for (const [i, r] of sect) {
         if (this.kind(r, openers.has(i + 1)) === 'img') { flush(); blocks.push({ t: 'img', i }); continue; }
         const L = med(r.map(x => x.x0)), R = r.map(x => x.x1).sort((a, b) => a - b)[Math.floor(r.length * .75)];
@@ -148,9 +161,18 @@ const Ocr = (() => {
           if (cur == null) np = true;
           else if (!prev) np = x.x0 > L + 10 || lastShort;                  // começo de página
           else np = x.x0 > L + 10 || prev.x1 < R - 35;
-          if (cur != null && URL_OPEN.test(cur) && !/^\d{1,3}\s+\S/.test(x.t)) {   // endereço quebrado no fim da linha: continua sem espaço
-            const m = /^(\S+)([\s\S]*)$/.exec(x.t); cur += m[1] + m[2];
+          if (notes && cur != null) {   // notas: só um número no começo abre outra nota; o resto continua a anterior
+            if (/^\d{1,3}\s+\S/.test(x.t) || /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{2,}[,.]/.test(x.t)) { flush(); cur = x.t; }
+            else if (URL_ANY.test(cur) && /\.(?:ghtml|html?|php|pdf|xlsx?|docx?)$/i.test(cur)) { flush(); cur = x.t; }   // endereço completo: o que vem depois é outro trecho
+            else if (URL_ANY.test(cur)) {   // endereço: sem espaços; "-" no fim da linha é do endereço se a seguinte também abre com "-", senão é hifenização
+              const t = x.t.replace(/\s+/g, '');
+              cur = cur.endsWith('-') ? (t.startsWith('-') ? cur + t.slice(1) : cur.slice(0, -1) + t) : cur + t;
+            }
+            else if (cur.endsWith('-') && /^\p{Ll}/u.test(x.t)) cur = cur.slice(0, -1) + x.t;
+            else cur += ' ' + x.t;
+            prev = x; continue;
           }
+          else if (cur != null && URL_OPEN.test(cur) && !/^\d{1,3}\s+\S/.test(x.t)) cur += x.t.replace(/\s+/g, '');   // endereço quebrado no fim da linha: continua sem espaço
           else if (np) { flush(); cur = x.t; }
           else if (cur.endsWith('-') && /^\p{Ll}/u.test(x.t)) cur = cur.slice(0, -1) + x.t;   // hifenização de fim de linha
           else cur += ' ' + x.t;
@@ -214,7 +236,7 @@ const Ocr = (() => {
         }
         sect.push([i, r]);
       }
-      const blocks = book.paragraphs(sect, openers), fig = async b => `<p class="fig"><img src="${await addImg(b.i)}" alt=""/></p>`;
+      const blocks = book.paragraphs(sect, openers, NOTES_T.test(norm(c.title))), fig = async b => `<p class="fig"><img src="${await addImg(b.i)}" alt=""/></p>`;
       let body = '';
       while (blocks.length && blocks[0].t === 'img') body += await fig(blocks.shift());   // ilustração de abertura vem antes do título
       body += c.label ? `<h1>${esc(c.label)}</h1><h2>${esc(c.title)}</h2>` : `<h1>${esc(c.title)}</h1>`;
