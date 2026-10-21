@@ -994,6 +994,21 @@
   }
   function finalizeLines(groups, pn, col, rtl) {
     const out = [];
+    // capitular que desce até a 2ª linha: o agrupamento a junta à linha de baixo; ela vai para o começo da linha de cima
+    if (!rtl) for (const g of groups) {
+      if (g.items.length < 2) continue;
+      const it = [...g.items].sort((a, b) => a.x - b.x), cap = it[0], rest = it.slice(1), s = median(rest.map(r => r.size));
+      if (!/^\p{L}{1,2}$/u.test(cap.str.trim()) || cap.size < 1.8 * s || cap.x + cap.w > rest[0].x + 0.5 * s) continue;
+      const ry = median(rest.map(r => r.y)), rx = Math.min(...rest.map(r => r.x));
+      // a linha de cima que a letra alcança (a mais alta, se ela descer 3 ou mais linhas), alinhada ao texto ao lado dela
+      const capTop = cap.y - 0.72 * cap.size, yOf = h => median(h.items.map(r => r.y));
+      const up = groups.filter(h => h !== g && h.items.every(r => r.size < 1.5 * s) && yOf(h) > capTop + 0.4 * s && yOf(h) < ry - 0.6 * s
+        && Math.abs(Math.min(...h.items.map(r => r.x)) - rx) < 1.5 * s).sort((a, b) => yOf(a) - yOf(b))[0];
+      if (!up) continue;
+      const ux = Math.min(...up.items.map(r => r.x)), uy = median(up.items.map(r => r.y));
+      g.items = rest; g.y = ry; g.size = s;
+      up.items.push({ ...cap, w: Math.max(0.01, ux - cap.x - 0.01), y: uy, size: s });   // no lugar dela, colada na 1ª palavra ("E" + "ra" = "Era")
+    }
     for (const g of groups) {
       let items = g.items.sort((a, b) => a.x - b.x);
       if (rtl) {   // coordenadas espelhadas: trechos em escrita latina/números voltam à ordem da esquerda para a direita

@@ -82,14 +82,22 @@ test('paragraphs: recuo e linha curta abrem parágrafo; hífen de fim de linha j
   expect(two).toBe(6);
 });
 
-test.fixme('paragraphs: endereço quebrado no fim da linha não deveria colar o resto do parágrafo', async ({ page }) => {
-  // Hoje a linha seguinte a um endereço aberto entra sem espaços, e as próximas também ("longoedepoiscontinua…").
+test('paragraphs: endereço quebrado no fim da linha cola só a parte dele; o resto da frase segue com espaços', async ({ page }) => {
   const rows = [
     row('Veja o endereço https://exemplo.com/um/', 100, { x0: 80 }), row('caminho/longo e depois continua', 116), row('a frase normalmente.', 132, { x1: 300 }),
     ...Array.from({ length: 10 }, (_, k) => row('linha de enchimento para a página ter texto', 148 + k * 16, { x0: k ? 60 : 80 })),
   ];
   const r = await page.evaluate(rs => new Ocr.Book([{ W: 595, H: 842, rows: rs }]).paragraphs([[0, rs]], new Set(), false), rows);
   expect(r[0].text).toBe('Veja o endereço https://exemplo.com/um/caminho/longo e depois continua a frase normalmente.');
+});
+
+test('paragraphs: endereço que termina no fim da linha não engole a palavra seguinte', async ({ page }) => {
+  const rows = [
+    row('O site é https://exemplo.com', 100, { x0: 80 }), row('e lá tem tudo; ver também www.a.org/x/', 116), row('y/z.html para o resto.', 132, { x1: 300 }),
+    ...Array.from({ length: 10 }, (_, k) => row('linha de enchimento para a página ter texto', 148 + k * 16, { x0: k ? 60 : 80 })),
+  ];
+  const r = await page.evaluate(rs => new Ocr.Book([{ W: 595, H: 842, rows: rs }]).paragraphs([[0, rs]], new Set(), false), rows);
+  expect(r[0].text).toBe('O site é https://exemplo.com e lá tem tudo; ver também www.a.org/x/y/z.html para o resto.');
 });
 
 test('paragraphs em notas: cada número abre uma nota; endereços sem espaços', async ({ page }) => {

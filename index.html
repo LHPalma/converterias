@@ -1424,7 +1424,7 @@ const Kfx = (() => {
           if (c.nodeType === 3) s += c.nodeValue;
           else if (c.nodeType === 1) {
             const nm = c.localName.toLowerCase();
-            if (SKIP.has(nm)) continue;
+            if (SKIP.has(nm) || c.hasAttribute('hidden')) continue;   // hidden: o Kindle (e o EPUB → PDF) não mostra
             if (nm === 'br') s += '\n'; else s += inlineText(c);
           }
         }
@@ -1452,7 +1452,7 @@ const Kfx = (() => {
           if (c.nodeType === 3) { buf += c.nodeValue; continue; }
           if (c.nodeType !== 1) continue;
           const name = c.localName.toLowerCase();
-          if (SKIP.has(name)) continue;
+          if (SKIP.has(name) || c.hasAttribute('hidden')) continue;
           if (name === 'br') { buf += '\n'; continue; }
           if (!isBlocky(c) && !hasBlocky(c)) { buf += inlineText(c); continue; }
           flush();
@@ -2752,6 +2752,8 @@ const Ocr = (() => {
   const NOTES_T = /^(notas( e referencias)?|referencias( bibliograficas)?|bibliografia)$/;
   const URL_OPEN = /(?:https?:\/\/|www\.|\bh[ert][rtcp]{1,2}s?:\/\/)\S*$/i;   // parágrafo que termina no meio de um endereço
   const URL_ANY = /(?:https?:\/\/|www\.|\bh[ert][rtcp]{1,2}s?:\/\/)/i;
+  // a linha seguinte continua o endereço? sim se ele parou num separador ou se a palavra seguinte tem cara de endereço
+  const urlGoesOn = (cur, next) => /[\/\-_.=?&#%~]$/.test(cur) || /[\/.=?&#_]/.test(next.trim().split(/\s/)[0]);
   const fixUrls = t => t.replace(/\bh[ert][rtcp]{1,2}s?:\/\//gi, m => /^https?:/i.test(m) ? m : 'https://');   // "hrtps://" -> "https://"
   const LOW_WORD = 70;    // palavra com confiança abaixo disso é "duvidosa"
   const JUNK_LINE = 60;   // linha cuja confiança média (ponderada pelo tamanho) fica abaixo disso é lixo do OCR
@@ -2904,7 +2906,10 @@ const Ocr = (() => {
             else cur += ' ' + x.t;
             prev = x; continue;
           }
-          else if (cur != null && URL_OPEN.test(cur) && !/^\d{1,3}\s+\S/.test(x.t)) cur += x.t.replace(/\s+/g, '');   // endereço quebrado no fim da linha: continua sem espaço
+          else if (cur != null && URL_OPEN.test(cur) && !/^\d{1,3}\s+\S/.test(x.t) && urlGoesOn(cur, x.t)) {   // endereço quebrado no fim da linha:
+            const [, head, rest] = /^(\S*)\s*(.*)$/.exec(x.t.trim());                                      // só a 1ª palavra é dele; o resto é a frase
+            cur += head + (rest ? ' ' + rest : '');
+          }
           else if (np) { flush(); cur = x.t; }
           else if (cur.endsWith('-') && /^\p{Ll}/u.test(x.t)) cur = cur.slice(0, -1) + x.t;   // hifenização de fim de linha
           else cur += ' ' + x.t;
@@ -3708,6 +3713,21 @@ if (typeof module !== 'undefined') module.exports = Ocr;
   }
   function finalizeLines(groups, pn, col, rtl) {
     const out = [];
+    // capitular que desce até a 2ª linha: o agrupamento a junta à linha de baixo; ela vai para o começo da linha de cima
+    if (!rtl) for (const g of groups) {
+      if (g.items.length < 2) continue;
+      const it = [...g.items].sort((a, b) => a.x - b.x), cap = it[0], rest = it.slice(1), s = median(rest.map(r => r.size));
+      if (!/^\p{L}{1,2}$/u.test(cap.str.trim()) || cap.size < 1.8 * s || cap.x + cap.w > rest[0].x + 0.5 * s) continue;
+      const ry = median(rest.map(r => r.y)), rx = Math.min(...rest.map(r => r.x));
+      // a linha de cima que a letra alcança (a mais alta, se ela descer 3 ou mais linhas), alinhada ao texto ao lado dela
+      const capTop = cap.y - 0.72 * cap.size, yOf = h => median(h.items.map(r => r.y));
+      const up = groups.filter(h => h !== g && h.items.every(r => r.size < 1.5 * s) && yOf(h) > capTop + 0.4 * s && yOf(h) < ry - 0.6 * s
+        && Math.abs(Math.min(...h.items.map(r => r.x)) - rx) < 1.5 * s).sort((a, b) => yOf(a) - yOf(b))[0];
+      if (!up) continue;
+      const ux = Math.min(...up.items.map(r => r.x)), uy = median(up.items.map(r => r.y));
+      g.items = rest; g.y = ry; g.size = s;
+      up.items.push({ ...cap, w: Math.max(0.01, ux - cap.x - 0.01), y: uy, size: s });   // no lugar dela, colada na 1ª palavra ("E" + "ra" = "Era")
+    }
     for (const g of groups) {
       let items = g.items.sort((a, b) => a.x - b.x);
       if (rtl) {   // coordenadas espelhadas: trechos em escrita latina/números voltam à ordem da esquerda para a direita
