@@ -17,18 +17,30 @@ const Ocr = (() => {
     return 2 * hit / (a.length - 1 + b.length - 1);
   };
 
-  /* linhas do Tesseract (px) -> linhas em pontos, de cima para baixo */
+  const LOW_WORD = 70;    // palavra com confiança abaixo disso é "duvidosa"
+  const JUNK_LINE = 60;   // linha cuja confiança média (ponderada pelo tamanho) fica abaixo disso é lixo do OCR
+
+  /* linhas do Tesseract (px) -> linhas em pontos, de cima para baixo.
+     Cada linha guarda as palavras com a confiança: w = [{ t, c }]; c = confiança média da linha. */
   function rowsFromLines(lines, pxW) {
     const f = PT_W / pxW, out = [];
     for (const l of lines) {
-      const t = (l.text || '').replace(/\s+/g, ' ').trim();
-      if (!t || !/[\p{L}\p{N}]/u.test(t) || (l.confidence != null && l.confidence < 35)) continue;
+      let w = (l.words || []).map(x => ({ t: (x.text || '').trim(), c: x.confidence == null ? 100 : x.confidence })).filter(x => x.t);
+      if (!w.length) { const t = (l.text || '').replace(/\s+/g, ' ').trim(); w = t ? t.split(' ').map(x => ({ t: x, c: l.confidence == null ? 100 : l.confidence })) : []; }
+      const t = w.map(x => x.t).join(' ');
+      if (!t || !/[\p{L}\p{N}]/u.test(t)) continue;
+      const len = w.reduce((s, x) => s + x.t.length, 0), c = w.reduce((s, x) => s + x.c * x.t.length, 0) / len;
+      const letters = (t.match(/\p{L}/gu) || []).length;
+      if (c < JUNK_LINE || (c < 80 && letters < 6 && !/^[\d\s|.]+$/.test(t))) continue;   // lixo: ilustração, mancha ou borda lidas como letras
       const b = l.bbox, h = (b.y1 - b.y0) * f;
-      if (h > 30) continue;   // manchas e ilustrações lidas como letras enormes
-      out.push({ x0: b.x0 * f, x1: b.x1 * f, y: (b.y0 + b.y1) / 2 * f, t });
+      if (h > 30) continue;          // manchas e ilustrações lidas como letras enormes
+      out.push({ x0: b.x0 * f, x1: b.x1 * f, y: (b.y0 + b.y1) / 2 * f, t, w, c });
     }
     return out.sort((a, b) => a.y - b.y);
   }
+
+  /* palavras duvidosas (só letras) nas páginas, para o aviso ao usuário */
+  const countLow = pages => pages.reduce((n, p) => n + p.rows.reduce((m, r) => m + r.w.filter(x => x.c < LOW_WORD && /\p{L}{2,}/u.test(x.t)).length, 0), 0);
 
   class Book {
     constructor(pages) {
@@ -176,5 +188,5 @@ const Ocr = (() => {
     return { bytes, chapters: files.length, plan: chapters };
   }
 
-  return { PT_W, rowsFromLines, buildEpub, Book };
+  return { PT_W, LOW_WORD, rowsFromLines, countLow, buildEpub, Book };
 })();

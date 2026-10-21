@@ -1148,7 +1148,7 @@
     const title = $('oTitle').value.trim() || file.name.replace(/\.pdf$/i, '');
     const author = $('oAuthor').value.trim();
     const r = await Ocr.buildEpub(JSZip, pages, { title, author, lang: lang.startsWith('eng') ? 'en' : 'pt-BR', cover, first, last }, async m => { say(m); await tick(); });
-    return { bytes: r.bytes, pages: N, chapters: r.chapters, title, authors: author ? [author] : [] };
+    return { bytes: r.bytes, pages: N, chapters: r.chapters, title, authors: author ? [author] : [], uncertain: Ocr.countLow(pages) };
   }
   async function scanToPdf(file, say) {
     say('Lendo o arquivo…'); await tick(); initPdfjs();
@@ -1159,7 +1159,7 @@
       const ep = await scanDocToEpub(doc, file, say);
       say('Gerando o PDF…'); await tick();
       const r = await epubToPdf(new File([ep.bytes], 'livro.epub', { type: 'application/epub+zip' }), say);
-      return { ...r, title: ep.title, authors: ep.authors };
+      return { ...r, title: ep.title, authors: ep.authors, uncertain: ep.uncertain };
     } finally { doc.destroy(); await ocrStop(); }
   }
 
@@ -2630,7 +2630,7 @@ ${spine.join('\n')}
         const url = URL.createObjectURL(new Blob([r.bytes], { type: M.mime }));
         results.push({ name, url, bytes: r.bytes, mime: M.mime });
         const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}` : `${r.pages} páginas`;
-        setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}`, 'ok', { name, url });
+        setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}${r.uncertain ? ` · ${r.uncertain} palavra(s) que o OCR leu com pouca certeza: vale revisar` : ''}`, 'ok', { name, url });
       } catch (e) {
         console.error(e);
         setItem(i, cancelled ? 'Cancelado' : 'Erro: ' + (e.message || e), 'err');
