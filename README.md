@@ -124,6 +124,14 @@ O Kindle não abre EPUB copiado por cabo USB: ele lê AZW3 (KF8) e KFX. Esta aba
 
 **Qual escolher:** AZW3 abre em qualquer Kindle e preserva mais do EPUB (fontes embutidas, estilos, notas em pop-up). KFX é o formato atual da Amazon, com tipografia melhor (hifenização e justificação da Amazon), e funciona nos aparelhos de 2015 para cá; aqui ele sai com o texto estruturado e as imagens, sem o CSS do EPUB. Na dúvida, AZW3.
 
+### Simulador de Kindle
+
+Depois de converter, cada AZW3 ou KFX da lista ganha **Simular no Kindle**: o arquivo gerado é aberto no próprio navegador e mostrado numa tela do aparelho, sem sair do seu aparelho.
+
+- **Mangá (layout fixo):** as páginas e o Panel View saem do arquivo de verdade, lidos dele e não recalculados: as áreas de toque (numeradas na ordem de leitura com **Áreas de toque**), o quadro ampliado e a máscara em volta dele. Um toque amplia, **▶** caminha para o próximo quadro e, depois do último, para a próxima página; **Esc** ou um toque fora volta à página inteira. O tamanho da tela é o do aparelho escolhido na conversão.
+- **Livro de texto (AZW3 e KFX):** o capítulo é paginado numa tela com a resolução do aparelho escolhido, com o CSS e as imagens do AZW3 (o KFX não leva o CSS do EPUB), sumário, letra maior/menor e toque nas bordas para virar a página. É uma **aproximação**: o Kindle diagrama com o motor e as fontes dele.
+- **Como funciona:** `src/kindle.js` remonta o AZW3 como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, fluxos de CSS e SVG, recursos e fontes) e decodifica o KFX do Amazon Ion.
+
 ### AZW3
 
 - **O que entra:** texto com parágrafos, títulos, listas, tabelas, notas de rodapé (pop-up), links internos, imagens (JPEG, PNG, GIF; WebP, BMP e SVG viram PNG/JPEG; JPEG progressivo ou CMYK é refeito), capa com miniatura, sumário em árvore (com os mesmos níveis do EPUB) e fontes TTF/OTF embutidas (inclusive as ofuscadas).
@@ -180,6 +188,7 @@ python3 build.py   # gera index.html a partir de src/template.html + vendor/
 - `src/template.html`: interface e o código dos conversores.
 - `src/azw3.js`: gravador de AZW3 (embutido no `index.html` pelo `build.py`).
 - `src/kfx.js`: gravador de KFX, com o codificador de Amazon Ion binário (idem).
+- `src/kindle.js`: simulador de Kindle (leitor de AZW3 e KFX para a tela de pré-visualização).
 - `src/manga.js`: PDF → páginas de mangá (cinza, aparo, partição de páginas duplas) e o EPUB de layout fixo que vira AZW3 (idem).
 - `vendor/`: bibliotecas e fontes embutidas (ver [THIRD_PARTY.md](THIRD_PARTY.md)).
 - `sw.js` e `manifest.webmanifest`: PWA (cache offline).
@@ -201,7 +210,7 @@ npm run coverage                  # os mesmos testes, medindo a cobertura: relat
 
 Tudo roda no Chromium de verdade, com o app servido por HTTP (como no GitHub Pages). Os arquivos de entrada são gerados na hora pelos próprios testes (nada de binário no repositório), e as saídas são abertas e conferidas por leitores escritos à parte, a partir dos formatos: o AZW3 é remontado como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, sumário, recursos), o KFX é decodificado do Amazon Ion. Qualquer erro de JavaScript na página faz o teste falhar.
 
-- `tests/e2e/`: ponta a ponta, um arquivo por aba (`epub-pdf`, `pdf-epub`, `pdf-epub-detalhes`, `juntar`, `imagens`, `organizar`, `kindle`, `manga`, `ocr`) e `interface` (abas e endereços `#`, cancelamento, compartilhar, PWA offline, `build.py --check`).
+- `tests/e2e/`: ponta a ponta, um arquivo por aba (`epub-pdf`, `pdf-epub`, `pdf-epub-detalhes`, `juntar`, `imagens`, `organizar`, `kindle`, `manga`, `ocr`), `simulador` (que também salva capturas de cada aparelho em `simulador/`; no CI, artefato **simulador**) e `interface` (abas e endereços `#`, cancelamento, compartilhar, PWA offline, `build.py --check`).
 - `tests/unidade/`: unitários das funções internas, no navegador: `app` (as de `src/template.html`, expostas em `window.__converterias`), `azw3`, `kfx`, `manga`, `ocr` e `spell`.
 - `tests/apoio/`: `arquivos.js` (geradores: EPUB 2/3, PDFs de livro, escaneados, com senha, quadrinhos, imagens), `leitores.js` (PDF, EPUB, AZW3, KFX) e `app.js` (abrir aba, converter, baixar).
 - `tests/cobertura/`: a medição de cobertura, que carrega os scripts de `src/` como arquivos (`cobertura.html`, gerado e ignorado pelo git).

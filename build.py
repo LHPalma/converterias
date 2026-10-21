@@ -25,6 +25,7 @@ html = html.replace("/*OCR*/", esc((root / "src" / "ocr.js").read_text(encoding=
 html = html.replace("/*AZW3*/", esc((root / "src" / "azw3.js").read_text(encoding="utf-8")))
 html = html.replace("/*KFX*/", esc((root / "src" / "kfx.js").read_text(encoding="utf-8")))
 html = html.replace("/*MANGA*/", esc((root / "src" / "manga.js").read_text(encoding="utf-8")))
+html = html.replace("/*KINDLE*/", esc((root / "src" / "kindle.js").read_text(encoding="utf-8")))
 html = html.replace("/*FONTS*/{}", json.dumps(fonts))
 
 out = root / "index.html"

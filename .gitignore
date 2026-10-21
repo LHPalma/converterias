@@ -9,3 +9,4 @@ playwright-report/
 coverage/
 cobertura.html
 cobertura-app.js
+simulador/
