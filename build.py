@@ -17,6 +17,9 @@ html = (root / "src" / "template.html").read_text(encoding="utf-8")
 for marker, f in (("/*PDFLIB*/", "pdf-lib.min.js"), ("/*FONTKIT*/", "fontkit.umd.min.js"), ("/*JSZIP*/", "jszip.min.js"),
                   ("/*PDFJS*/", "pdf.min.js"), ("/*PDFJSWORKER*/", "pdf.worker.min.js")):
     html = html.replace(marker, esc((v / f).read_text(encoding="utf-8")))
+html = html.replace("/*TESSERACT*/", esc((v / "ocr" / "tesseract.min.js").read_text(encoding="utf-8")))
+html = html.replace("/*SPELL*/", esc((root / "src" / "spell.js").read_text(encoding="utf-8")))
+html = html.replace("/*OCR*/", esc((root / "src" / "ocr.js").read_text(encoding="utf-8")))
 html = html.replace("/*AZW3*/", esc((root / "src" / "azw3.js").read_text(encoding="utf-8")))
 html = html.replace("/*KFX*/", esc((root / "src" / "kfx.js").read_text(encoding="utf-8")))
 html = html.replace("/*MANGA*/", esc((root / "src" / "manga.js").read_text(encoding="utf-8")))

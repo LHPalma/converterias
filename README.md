@@ -17,6 +17,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
 | **Mangá** (PDF escaneado → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
+| **Escaneado → PDF** (OCR no navegador, no padrão do EPUB → PDF) | disponível |
 
 ## EPUB → PDF
 
@@ -192,3 +193,32 @@ Use apenas com livros que você tem direito de converter. O projeto não inclui 
 ## Licença
 
 MIT (ver [LICENSE](LICENSE)). Bibliotecas e fontes de terceiros mantêm as próprias licenças.
+
+## Escaneado → PDF (OCR)
+
+PDF de livro escaneado vira PDF com texto de verdade, na mesma diagramação do EPUB → PDF. O OCR é feito **no próprio aparelho** com o [Tesseract.js](https://github.com/naptha/tesseract.js).
+
+### Como usar
+
+1. Toque em **Escaneado → PDF** (ou abra com `#escaneado` no fim do endereço) e escolha o PDF.
+2. Preencha título e autor (opcional; o padrão é o nome do arquivo), escolha o idioma e, se quiser, as páginas de conteúdo (`6-120`). Os ajustes de página e fonte são os mesmos do EPUB → PDF.
+3. **Converter** e baixe o PDF.
+
+### O que ele faz
+
+- Desenha cada página com o pdf.js e lê o texto com o Tesseract (português, inglês ou os dois).
+- **Parágrafos** reconstruídos pela margem e pelo recuo, com a hifenização de fim de linha desfeita; cabeçalhos correntes e números de página saem.
+- **Capítulos** detectados pelos cabeçalhos correntes (o título é o do cabeçalho); a página de abertura e a ilustração colada nela entram no capítulo novo.
+- **"Capítulo N"**: se o livro tem Sumário impresso com "Capítulo 1, 2…", o rótulo vira um título acima do nome do capítulo (pelo título ou, se o OCR errou o título, pela ordem). Prefácio, Posfácio e afins ficam sem número.
+- **Notas e Referências** (também *Referências* e *Bibliografia*) no topo de uma página viram um capítulo próprio. Cada nota começa no número; endereços partidos em várias linhas são remontados (sem espaços, com o hífen certo) e `hrtps://` volta a ser `https://`.
+- **Qualidade do OCR**: *Rápida* usa o modelo que já vem no app. *Alta qualidade* usa os modelos `best` do Tesseract (8 a 15 MB por idioma, bem mais lentos e mais precisos), baixados do jsDelivr só na primeira vez e guardados no navegador; só os dados do idioma são baixados, o seu arquivo nunca sai do aparelho. Sem internet na primeira vez, o app volta para o modelo rápido.
+- **Ilustrações, gráficos e páginas com pouco texto** entram como imagem, sem as bordas do scan; a primeira página vira a capa.
+- **Confiança por palavra**: linhas-lixo do OCR (borda do scan, manchas) são descartadas e o resultado avisa quantas palavras foram lidas com pouca certeza.
+- **Correção por dicionário** (opção *Corrigir palavras com o dicionário*, só português): usa o dicionário Hunspell pt-BR (VERO, ~5 MB, baixado na primeira vez e guardado no cache). Só mexe em palavras que o dicionário não conhece **e** que o OCR leu com pouca certeza, e só quando há uma única correção clara (acento perdido, confusões típicas como rn/m e l/i); junta palavras partidas pela hifenização e separa palavras coladas ("quevirão" → "que virão"). Nomes próprios, siglas, números e endereços ficam como estão.
+- No **PDF → EPUB** (e no Para Kindle) a opção *Fazer OCR se o PDF for escaneado* usa o mesmo caminho e gera o EPUB.
+
+### Limitações
+
+- O motor de OCR (cerca de 6 MB: núcleo WebAssembly e dados de idioma) vem da pasta `vendor/ocr/` na primeira vez e fica no cache para uso offline. Por isso o OCR não funciona abrindo o `index.html` direto do arquivo: use o endereço do site (GitHub Pages) ou um servidor local (`python3 -m http.server`).
+- É lento: alguns segundos por página no computador, bem mais no celular, e consome memória. Prefira um livro por vez e use o intervalo de páginas para testar.
+- Erros de reconhecimento continuam no texto; tabelas e gráficos viram imagem; livros de várias colunas ou com layout livre podem sair com parágrafos errados.

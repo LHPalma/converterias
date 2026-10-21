@@ -73,6 +73,7 @@
     <button type="button" data-mode="org">Organizar PDF</button>
     <button type="button" data-mode="kindle">Para Kindle</button>
     <button type="button" data-mode="manga">Mangá</button>
+    <button type="button" data-mode="ocr">Escaneado → PDF</button>
   </div>
   <div class="card">
     <label id="drop" for="file"><strong id="fname">Toque para escolher um ou mais .epub</strong><span id="fmeta"></span></label>
@@ -130,6 +131,29 @@
     <label class="chk"><input id="pCover" type="checkbox" checked> Primeira página como capa</label>
     <label class="chk"><input id="pImgs" type="checkbox" checked> Incluir imagens (figuras e páginas escaneadas)</label>
     <label class="chk"><input id="pHf" type="checkbox" checked> Remover cabeçalhos, rodapés e números de página</label>
+    <label class="chk"><input id="pOcr" type="checkbox"> Fazer OCR se o PDF for escaneado (mais lento)</label>
+  </div>
+
+  <div class="card" id="optOCR" hidden>
+    <label for="oTitle">Título (opcional; use " - " para separar o subtítulo)</label>
+    <input id="oTitle" type="text" autocomplete="off" placeholder="Padrão: o nome do arquivo">
+    <label for="oAuthor">Autor (opcional)</label>
+    <input id="oAuthor" type="text" autocomplete="off">
+    <label for="oLang">Idioma do livro (OCR)</label>
+    <select id="oLang">
+      <option value="por">Português</option>
+      <option value="eng">Inglês</option>
+      <option value="por+eng">Português e inglês</option>
+    </select>
+    <label for="oQual">Qualidade do OCR</label>
+    <select id="oQual">
+      <option value="fast">Rápida (já vem no app)</option>
+      <option value="best">Alta qualidade (baixa 8 a 15 MB da internet na primeira vez; mais lenta)</option>
+    </select>
+    <label for="oRange">Páginas de conteúdo (opcional, ex.: 6-120)</label>
+    <input id="oRange" type="text" inputmode="numeric" autocomplete="off" placeholder="Todas">
+    <label class="chk"><input id="oCover" type="checkbox" checked> Primeira página como capa</label>
+    <label class="chk"><input id="oFix" type="checkbox" checked> Corrigir palavras com o dicionário (só português; baixa ~5 MB na primeira vez)</label>
   </div>
 
   <div class="card" id="optMerge" hidden>
@@ -200,6 +224,9 @@
 <script>/*AZW3*/</script>
 <script>/*KFX*/</script>
 <script>/*MANGA*/</script>
+<script>/*TESSERACT*/</script>
+<script>/*SPELL*/</script>
+<script>/*OCR*/</script>
 <script>const FONT_DATA = /*FONTS*/{};</script>
 <script>
 (() => {
@@ -227,14 +254,17 @@
                 : 'Gera AZW3 (KF8), o formato que o Kindle abre por cabo USB: copie o arquivo para a pasta "documents" do Kindle. EPUB vira AZW3 direto; PDF vira EPUB primeiro (com as opções acima) e depois AZW3. O AZW3 não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Fontes embutidas no EPUB são descartadas (o Kindle usa as dele). Nome do arquivo: Título em Title Case - Subtítulo (Autor).'; } },
     manga: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'mangás',
              note: 'Transforma cada página do PDF numa página de imagem e gera um AZW3 de layout fixo — o formato que a Amazon usa para mangá e HQ: copie o arquivo para a pasta "documents" do Kindle. As páginas saem em tons de cinza, no tamanho exato da tela do aparelho escolhido, e as margens brancas da digitalização são aparadas. Páginas duplas podem ser partidas em duas, na ordem de leitura. Serve para PDF de página escaneada; PDF de texto corrido fica melhor em Para Kindle. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
+    ocr: { pick: 'Toque para escolher um ou mais PDFs escaneados', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
+           note: 'Faz OCR do PDF escaneado no próprio aparelho e gera um PDF com a mesma diagramação do EPUB → PDF: parágrafos, capítulos (pelos cabeçalhos das páginas), ilustrações como imagem e capa. Na primeira vez baixa o motor de OCR (cerca de 6 MB), que depois fica guardado para uso offline. É lento (alguns segundos por página; no celular, bem mais) e consome memória: prefira um livro por vez. Erros de reconhecimento continuam no texto. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
              note: 'Junta vários PDFs em um PDF, ou vários EPUBs em um EPUB, na ordem da lista. O PDF ganha um marcador por arquivo (com os marcadores originais dentro); o EPUB ganha um sumário com um item por livro. Dá para escolher arquivos de pastas diferentes em várias vezes.' },
   };
+  const syncOcrOpts = () => { $('optOCR').hidden = !(mode === 'ocr' || ((mode === 'p2e' || mode === 'kindle') && $('pOcr').checked)); };
   const kFmt = () => (($('kFmt') || {}).value || 'azw3');
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : 'e2p';
   Manga.DEVICES.forEach((d, i) => $('mDev').add(new Option(d.label, d.id, !i, !i)));
 
   let cancelled = false;
@@ -291,7 +321,7 @@
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
+    $('optE2P').hidden = m !== 'e2p' && m !== 'ocr'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; syncOcrOpts(); $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
     go.style.display = m === 'org' ? 'none' : '';   // no Organizar, os botões de salvar ficam junto das páginas
     if (m === 'org') $('orgOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
     listEl.hidden = m === 'org'; orgReset();
@@ -300,10 +330,11 @@
     $('note').textContent = MODES[m].note;
     files = []; showFiles();
   };
+  $('pOcr').addEventListener('change', syncOcrOpts);
   $('kFmt').addEventListener('change', () => { $('note').textContent = MODES[mode].note; showFiles(); });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -1060,13 +1091,115 @@
   }
   const shapeCorr = (A, B) => A.reduce((p, q, k) => p + q * B[k], 0);
 
+  // ---------- OCR (Tesseract.js, 100% local) ----------
+  let ocrWorker = null, ocrKey = '';
+  async function ocrStop() { if (ocrWorker) { try { await ocrWorker.terminate(); } catch (e) {} ocrWorker = null; ocrKey = ''; } }
+  const BEST_URL = 'https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_best@4.1.0/';   // modelos "best" do Tesseract (só os dados do idioma; nada do seu arquivo sai do aparelho)
+  async function ocrStart(lang, say, quality = 'fast') {
+    if (typeof Tesseract === 'undefined') throw new Error('o motor de OCR não está nesta versão do app.');
+    const key = lang + '|' + quality;
+    if (ocrWorker && ocrKey === key) return ocrWorker;
+    await ocrStop();
+    const base = new URL('vendor/ocr/', location.href).href;
+    const make = q => Tesseract.createWorker(lang, 1, {
+      workerPath: base + 'worker.min.js', corePath: base + 'tesseract-core-simd-lstm.wasm.js', gzip: false,
+      langPath: q === 'best' ? BEST_URL : base, cacheMethod: q === 'best' ? 'write' : 'none',   // o modelo grande fica no cache do navegador (IndexedDB)
+      logger: m => { if (m.status && /^(loading|initializ)/.test(m.status)) say(q === 'best' && /language/.test(m.status) ? `Baixando o modelo de alta qualidade… ${Math.round((m.progress || 0) * 100)}%` : 'Preparando o OCR…'); }
+    });
+    try {
+      try { ocrWorker = await make(quality); }
+      catch (e) {
+        if (quality !== 'best') throw e;
+        console.warn('modelo de alta qualidade indisponível', e); say('Não consegui baixar o modelo de alta qualidade; usando o rápido…');
+        quality = 'fast'; ocrWorker = await make('fast');
+      }
+    } catch (e) {
+      ocrWorker = null;
+      throw new Error('não consegui iniciar o OCR. Ele usa os arquivos da pasta vendor/ocr: abra o app pelo endereço do site (ou por um servidor local), não direto do arquivo .html. ' + (e && e.message ? e.message : e));
+    }
+    ocrKey = lang + '|' + quality; return ocrWorker;
+  }
+  let spellDict = null;
+  async function loadSpell(say) {   // dicionário Hunspell pt-BR, carregado sob demanda (e guardado no cache do app)
+    if (spellDict) return spellDict;
+    say('Carregando o dicionário…');
+    const base = new URL('vendor/ocr/', location.href).href, get = async n => { const r = await fetch(base + n); if (!r.ok) throw new Error(n); return r.text(); };
+    const [aff, dic] = await Promise.all([get('pt.aff'), get('pt.dic')]);
+    return (spellDict = new Spell.Dict(aff, dic));
+  }
+  async function isScanned(doc) {   // amostra páginas espalhadas: sem texto algum = escaneado
+    let chars = 0; const N = doc.numPages;
+    for (let k = 1; k <= Math.min(6, N); k++) {
+      const pg = await doc.getPage(Math.max(1, Math.round(k * N / 6)));
+      const tc = await pg.getTextContent(); chars += tc.items.reduce((s, it) => s + (it.str || '').length, 0); pg.cleanup();
+    }
+    return chars < 25;
+  }
+  async function scanDocToEpub(doc, file, say) {
+    const lang = $('oLang').value, N = doc.numPages;
+    const rg = /^\s*(\d+)?\s*[-–]\s*(\d+)?\s*$/.exec($('oRange').value);
+    const first = Math.min(N, Math.max(1, rg && rg[1] ? +rg[1] : 1)), last = Math.min(N, Math.max(first, rg && rg[2] ? +rg[2] : N));
+    const cover = $('oCover').checked ? 1 : 0;
+    const worker = await ocrStart(lang, say, $('oQual').value);
+    let spell = null;
+    if ($('oFix').checked && lang === 'por' && typeof Spell !== 'undefined') { try { spell = await loadSpell(say); } catch (e) { console.warn('dicionário indisponível', e); } }
+    const pages = [], total = last - first + 1, t0 = Date.now(); let done = 0;
+    const { AnnotationMode } = pdfjsLib;
+    for (let i = 1; i <= N; i++) {
+      const inRange = i >= first && i <= last;
+      if (!inRange && i !== cover) { pages.push({ W: Ocr.PT_W, H: 842, rows: [], ink: 0, img: null }); continue; }
+      await tick();
+      if (inRange) {
+        const eta = done ? Math.round((Date.now() - t0) / done * (total - done) / 1000) : 0;
+        say(`OCR: página ${done + 1} de ${total}${eta ? ` · faltam ~${eta >= 90 ? Math.round(eta / 60) + ' min' : eta + ' s'}` : ''}`);
+      }
+      const page = await doc.getPage(i), v1 = page.getViewport({ scale: 1 });
+      const scale = Math.min(3.5, Math.max(1.5, 2000 / v1.width)), vp = page.getViewport({ scale });
+      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+      await page.render({ canvasContext: cx, viewport: vp, annotationMode: AnnotationMode.DISABLE }).promise;
+      const img = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9));
+      const sm = document.createElement('canvas'); sm.width = 200; sm.height = Math.max(1, Math.round(200 * cv.height / cv.width));
+      const sx = sm.getContext('2d', { willReadFrequently: true }); sx.drawImage(cv, 0, 0, sm.width, sm.height);
+      const px = sx.getImageData(0, 0, sm.width, sm.height).data; let dark = 0;
+      for (let k = 0; k < px.length; k += 4) if (px[k] * .299 + px[k + 1] * .587 + px[k + 2] * .114 < 120) dark++;
+      let rows = [];
+      if (inRange) {
+        const { data } = await worker.recognize(img, {}, { blocks: true });
+        rows = Ocr.rowsFromLines((data.blocks || []).flatMap(b => b.paragraphs.flatMap(p => p.lines)), cv.width);
+        done++;
+      }
+      pages.push({ W: Ocr.PT_W, H: cv.height * Ocr.PT_W / cv.width, rows, ink: dark / (px.length / 4), img });
+      cv.width = cv.height = sm.width = sm.height = 0; page.cleanup();
+    }
+    const title = $('oTitle').value.trim() || file.name.replace(/\.pdf$/i, '');
+    const author = $('oAuthor').value.trim();
+    const r = await Ocr.buildEpub(JSZip, pages, { title, author, lang: lang.startsWith('eng') ? 'en' : 'pt-BR', cover, first, last, spell }, async m => { say(m); await tick(); });
+    return { bytes: r.bytes, pages: N, chapters: r.chapters, title, authors: author ? [author] : [], uncertain: Ocr.countLow(pages), fixed: r.fixed };
+  }
+  async function scanToPdf(file, say) {
+    say('Lendo o arquivo…'); await tick(); initPdfjs();
+    let doc;
+    try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
+    catch (e) { throw new Error(e && e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'Não parece um PDF válido.'); }
+    try {
+      const ep = await scanDocToEpub(doc, file, say);
+      say('Gerando o PDF…'); await tick();
+      const r = await epubToPdf(new File([ep.bytes], 'livro.epub', { type: 'application/epub+zip' }), say);
+      return { ...r, title: ep.title, authors: ep.authors, uncertain: ep.uncertain, fixed: ep.fixed };
+    } finally { doc.destroy(); spellDict = null; await ocrStop(); }
+  }
+
   async function pdfToEpub(file, say) {
     say('Lendo o arquivo…'); await tick();
     initPdfjs();
     let doc;
     try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
     catch (e) { throw new Error(e && e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'Não parece um PDF válido.'); }
-    try { return await pdfDocToEpub(doc, file, say); } finally { doc.destroy(); }
+    try {
+      if ($('pOcr').checked && await isScanned(doc)) return await scanDocToEpub(doc, file, say);
+      return await pdfDocToEpub(doc, file, say);
+    } finally { doc.destroy(); spellDict = null; await ocrStop(); }
   }
 
   async function pdfDocToEpub(doc, file, say) {
@@ -2509,7 +2642,7 @@ ${spine.join('\n')}
 
   async function runBatch() {
     busy = true; cancelled = false; go.disabled = true; fileEl.disabled = true; outBtns.style.display = 'none'; $('cancel').style.display = '';
-    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert, manga: mangaConvert }[mode] || epubToPdf;
+    const M = MODES[mode], convert = { p2e: pdfToEpub, kindle: kindleConvert, manga: mangaConvert, ocr: scanToPdf }[mode] || epubToPdf;
     results.forEach(r => URL.revokeObjectURL(r.url)); if (zipUrl) URL.revokeObjectURL(zipUrl);
     results = []; zipUrl = null; renderList();
     const used = new Map();
@@ -2526,7 +2659,7 @@ ${spine.join('\n')}
         const info = r.chapters ? `${r.chapters} ${r.chapters > 1 ? 'capítulos' : 'capítulo'}`
           : `${r.pages} páginas${r.detected ? ` · quadrinhos detectados em ${r.detected}` : ''}` +
             (r.looksLikeText ? ' · parece texto corrido, não quadrinho: a aba Para Kindle fica bem melhor' : '');
-        setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}`, 'ok', { name, url });
+        setItem(i, `✓ ${info} · ${(r.bytes.length / 1048576).toFixed(1)} MB${r.garbledPages ? ` · ${r.garbledPages} página(s) com texto ilegível no PDF entraram como imagem` : ''}${r.fixed ? ` · ${r.fixed} palavra(s) corrigida(s) pelo dicionário` : ''}${r.uncertain ? ` · ${r.uncertain} palavra(s) que o OCR leu com pouca certeza: vale revisar` : ''}`, 'ok', { name, url });
       } catch (e) {
         console.error(e);
         setItem(i, cancelled ? 'Cancelado' : 'Erro: ' + (e.message || e), 'err');
