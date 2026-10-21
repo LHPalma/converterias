@@ -836,5 +836,7 @@ const Azw3 = (() => {
     return { bytes, title: book.title, authors: book.authors, lang, textLength: fullText.length, records: n, images: resources.length, sections: files.length };
   }
 
-  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage };
+  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage,
+           _sniff: sniff, _jpegInfo: jpegInfo, _sha1: sha1, _fontRecord: fontRecord, _thumbnail: thumbnail, _ulen: ulen, _clean: clean,
+           _buildIndex: buildIndex, _buildCncx: buildCncx, _tbsRecord: tbsRecord, _normCss: normCss, _fontFaces: fontFaces, _fixCss: fixCss };
 })();

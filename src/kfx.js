@@ -389,5 +389,5 @@ const Kfx = (() => {
     return { bytes: container(frags, st, containerId), title: book.title, authors: book.authors,
              sections: spine.length, images: [...resources.values()].filter(Boolean).length };
   }
-  return { convert, _ion: ion, _sha1: sha1 };
+  return { convert, _ion: ion, _sha1: sha1, _imgDims: imgDims, _container: container, _entity: entity };
 })();

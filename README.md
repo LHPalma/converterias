@@ -188,21 +188,26 @@ Para publicar: *Settings → Pages → Deploy from a branch → `main` / root*.
 
 ### Testes
 
-Testes de regressão com [Playwright](https://playwright.dev): o app em si continua sem Node, isso é só para desenvolver.
+Testes automáticos com [Playwright](https://playwright.dev): o app continua sem Node, isso é só para desenvolver.
 
 ```bash
 npm install
 npx playwright install chromium   # uma vez
-npm test                          # confere o index.html e roda todos os testes (~40 s)
+npm test                          # confere o index.html e roda todos os testes (~3 min)
 npx playwright test -g "Kindle"   # só os testes cujo nome tem "Kindle"
+npx playwright test tests/unidade # só os unitários (~20 s)
+npm run coverage                  # os mesmos testes, medindo a cobertura: relatório em coverage/index.html
 ```
 
-- `python3 build.py --check` falha se o `index.html` não foi regenerado depois de mexer em `src/`.
-- `tests/conversores.spec.js`: ponta a ponta. Abre o `index.html` no Chromium (por HTTP, como no GitHub Pages), passa por cada aba arquivos gerados na hora (EPUB, PDF de texto, PDF de imagens, página "escaneada") e abre a saída para conferir: nome do arquivo, metadados, páginas, tamanho, rotação, capítulos, cabeçalhos do AZW3/KFX, texto lido pelo OCR. Também falha se a página tiver qualquer erro de JavaScript.
-- `tests/modulos.spec.js`: unitários, em Node puro: corretor ortográfico, reconstrução do OCR, compressão PalmDOC do AZW3 (ida e volta), SHA-1 do KFX.
-- `tests/helpers.js`: geradores dos arquivos de entrada e leitores das saídas.
+Tudo roda no Chromium de verdade, com o app servido por HTTP (como no GitHub Pages). Os arquivos de entrada são gerados na hora pelos próprios testes (nada de binário no repositório), e as saídas são abertas e conferidas por leitores escritos à parte, a partir dos formatos: o AZW3 é remontado como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, sumário, recursos), o KFX é decodificado do Amazon Ion. Qualquer erro de JavaScript na página faz o teste falhar.
 
-O GitHub Actions (`.github/workflows/testes.yml`) roda tudo em cada push na `main` e em cada pull request; se falhar, o relatório fica nos artefatos da execução. Ao corrigir um bug, vale acrescentar um teste que o reproduz.
+- `tests/e2e/`: ponta a ponta, um arquivo por aba (`epub-pdf`, `pdf-epub`, `pdf-epub-detalhes`, `juntar`, `imagens`, `organizar`, `kindle`, `manga`, `ocr`) e `interface` (abas e endereços `#`, cancelamento, compartilhar, PWA offline, `build.py --check`).
+- `tests/unidade/`: unitários das funções internas, no navegador: `app` (as de `src/template.html`, expostas em `window.__converterias`), `azw3`, `kfx`, `manga`, `ocr` e `spell`.
+- `tests/apoio/`: `arquivos.js` (geradores: EPUB 2/3, PDFs de livro, escaneados, com senha, quadrinhos, imagens), `leitores.js` (PDF, EPUB, AZW3, KFX) e `app.js` (abrir aba, converter, baixar).
+- `tests/cobertura/`: a medição de cobertura, que carrega os scripts de `src/` como arquivos (`cobertura.html`, gerado e ignorado pelo git).
+- Testes marcados com `test.fixme` descrevem falhas conhecidas que ainda não foram corrigidas: quando alguém corrigir, é só trocar por `test`.
+
+O GitHub Actions (`.github/workflows/testes.yml`) roda tudo em cada push na `main` e em cada pull request, e num segundo job mede a cobertura (resumo na própria execução, relatório completo nos artefatos). Ao corrigir um bug, vale acrescentar um teste que o reproduz.
 
 ## Aviso
 

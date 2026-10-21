@@ -572,5 +572,5 @@ const Manga = (() => {
 
   return { convert, DEVICES, deviceById,
            _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml,
-           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu };
+           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu, _toGray: toGray, _detectedHtml: detectedHtml, _buildEpub: buildEpub };
 })();

@@ -1130,7 +1130,9 @@ const Azw3 = (() => {
     return { bytes, title: book.title, authors: book.authors, lang, textLength: fullText.length, records: n, images: resources.length, sections: files.length };
   }
 
-  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage };
+  return { convert, palmCompress, vwi, b32, _readEpub: readEpub, _resolve: resolve, _prepareImage: prepareImage,
+           _sniff: sniff, _jpegInfo: jpegInfo, _sha1: sha1, _fontRecord: fontRecord, _thumbnail: thumbnail, _ulen: ulen, _clean: clean,
+           _buildIndex: buildIndex, _buildCncx: buildCncx, _tbsRecord: tbsRecord, _normCss: normCss, _fontFaces: fontFaces, _fixCss: fixCss };
 })();
 </script>
 <script>// EPUB -> KFX (formato atual do Kindle). Container CONT + fragmentos em Amazon Ion.
@@ -1524,7 +1526,7 @@ const Kfx = (() => {
     return { bytes: container(frags, st, containerId), title: book.title, authors: book.authors,
              sections: spine.length, images: [...resources.values()].filter(Boolean).length };
   }
-  return { convert, _ion: ion, _sha1: sha1 };
+  return { convert, _ion: ion, _sha1: sha1, _imgDims: imgDims, _container: container, _entity: entity };
 })();
 </script>
 <script>// PDF -> mangá para Kindle: páginas em imagem num AZW3 (KF8) de layout fixo.
@@ -2101,7 +2103,7 @@ const Manga = (() => {
 
   return { convert, DEVICES, deviceById,
            _contentBox: contentBox, _autoLevel: autoLevel, _panelPlan: panelPlan, _panelHtml: panelHtml,
-           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu };
+           _detectPanels: detectPanels, _detectBest: detectBest, _otsu: otsu, _toGray: toGray, _detectedHtml: detectedHtml, _buildEpub: buildEpub };
 })();
 </script>
 <script>/*! For license information please see tesseract.min.js.LICENSE.txt */
@@ -2521,7 +2523,7 @@ const Ocr = (() => {
     return { bytes, chapters: files.length, plan: chapters, fixed: stats.fixed.length, fixes: stats.fixed };
   }
 
-  return { PT_W, LOW_WORD, rowsFromLines, countLow, buildEpub, Book };
+  return { PT_W, LOW_WORD, rowsFromLines, countLow, buildEpub, Book, _crop: crop, _dice: dice, _fixUrls: fixUrls, _norm: norm };
 })();
 if (typeof module !== 'undefined') module.exports = Ocr;
 </script>
@@ -5017,6 +5019,10 @@ ${spine.join('\n')}
     sepBtn.disabled = false; sepBtn.textContent = sepBtn.dataset.label;
   });
   go.addEventListener('click', () => ({ merge: runMerge, i2p: runImagesToPdf, p2i: runPdfToImages }[mode] || runBatch)());
+  // funções internas, para os testes automáticos (tests/unidade); o app não usa
+  window.__converterias = { titleCase, cleanAuthors, makeName, resolve, buildBlocks, modeOf, composeAcc, guessLang, findGutters, clusterLines,
+    buildRuns, finalizeLines, pageLines, drawnShapes, figureRegions, shapeVec, shapeCorr, kindOf, guessTitle, pdfOutline, writeOutline, jpegInfo,
+    imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs };
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>

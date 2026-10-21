@@ -6,6 +6,8 @@ const PORT = 4173;
 
 module.exports = defineConfig({
   testDir: 'tests',
+  globalSetup: './tests/cobertura/montar.js',
+  globalTeardown: './tests/cobertura/fechar.js',
   timeout: 120_000,
   expect: { timeout: 60_000 },
   fullyParallel: true,

@@ -262,6 +262,6 @@ const Ocr = (() => {
     return { bytes, chapters: files.length, plan: chapters, fixed: stats.fixed.length, fixes: stats.fixed };
   }
 
-  return { PT_W, LOW_WORD, rowsFromLines, countLow, buildEpub, Book };
+  return { PT_W, LOW_WORD, rowsFromLines, countLow, buildEpub, Book, _crop: crop, _dice: dice, _fixUrls: fixUrls, _norm: norm };
 })();
 if (typeof module !== 'undefined') module.exports = Ocr;

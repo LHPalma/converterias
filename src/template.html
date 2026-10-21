@@ -2719,6 +2719,10 @@ ${spine.join('\n')}
     sepBtn.disabled = false; sepBtn.textContent = sepBtn.dataset.label;
   });
   go.addEventListener('click', () => ({ merge: runMerge, i2p: runImagesToPdf, p2i: runPdfToImages }[mode] || runBatch)());
+  // funções internas, para os testes automáticos (tests/unidade); o app não usa
+  window.__converterias = { titleCase, cleanAuthors, makeName, resolve, buildBlocks, modeOf, composeAcc, guessLang, findGutters, clusterLines,
+    buildRuns, finalizeLines, pageLines, drawnShapes, figureRegions, shapeVec, shapeCorr, kindOf, guessTitle, pdfOutline, writeOutline, jpegInfo,
+    imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs };
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
