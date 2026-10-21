@@ -147,6 +147,9 @@ const Ocr = (() => {
       if (!imgs.has(name)) imgs.set(name, await crop(pages[i].img));
       return name;
     };
+    const stats = { fixed: [] }, low = new Set();
+    if (meta.spell) for (const pg of pages) for (const r of pg.rows) for (const x of r.w) if (x.c < LOW_WORD) low.add(x.t.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ''));
+    const clean = t => { t = t.replace(/--/g, '-').replace(/\s*[|¦]\s*/g, ' ').trim(); return meta.spell ? Spell.fixText(t, meta.spell, low, stats) : t; };
     let cn = 0;
     for (const c of chapters) {
       if (tick) await tick(`Montando o capítulo ${++cn} de ${chapters.length}…`);
@@ -166,7 +169,7 @@ const Ocr = (() => {
       let body = '';
       while (blocks.length && blocks[0].t === 'img') body += await fig(blocks.shift());   // ilustração de abertura vem antes do título
       body += `<h1>${esc(c.title)}</h1>`;
-      for (const b of blocks) body += b.t === 'p' ? `<p>${esc(b.text.replace(/--/g, '-').replace(/\s*[|¦]\s*/g, ' ').trim())}</p>` : await fig(b);
+      for (const b of blocks) body += b.t === 'p' ? `<p>${esc(clean(b.text))}</p>` : await fig(b);
       files.push({ name: `c${String(files.length + 1).padStart(2, '0')}.xhtml`, title: c.title, body });
     }
     const X = '<?xml version="1.0" encoding="utf-8"?>\n', lang = meta.lang || 'pt-BR';
@@ -185,7 +188,7 @@ const Ocr = (() => {
     const uid = 'urn:ocr:' + Math.random().toString(16).slice(2) + Date.now().toString(16);
     zip.file('OEBPS/content.opf', X + `<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">${uid}</dc:identifier><dc:title>${esc(meta.title)}</dc:title>${meta.author ? `<dc:creator>${esc(meta.author)}</dc:creator>` : ''}<dc:language>${lang}</dc:language><meta property="dcterms:modified">2000-01-01T00:00:00Z</meta></metadata><manifest>${mani}</manifest><spine>${spine}</spine></package>`);
     const bytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/epub+zip' });
-    return { bytes, chapters: files.length, plan: chapters };
+    return { bytes, chapters: files.length, plan: chapters, fixed: stats.fixed.length, fixes: stats.fixed };
   }
 
   return { PT_W, LOW_WORD, rowsFromLines, countLow, buildEpub, Book };
