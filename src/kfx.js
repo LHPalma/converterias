@@ -1,5 +1,6 @@
 // EPUB -> KFX (formato atual do Kindle). Container CONT + fragmentos em Amazon Ion.
 // Uso: await Kfx.convert(bytesDoEpub, { say, tick }) -> { bytes, title, authors, sections }. Lê o EPUB com Azw3._readEpub.
+// O formato (contêiner, Ion, fragmentos, posições, armadilhas) está descrito em docs/FORMATO-KFX.md.
 const Kfx = (() => {
   const enc = new TextEncoder();
   const cat = ps => { let n = 0; for (const p of ps) n += p.length; const o = new Uint8Array(n); let k = 0; for (const p of ps) { o.set(p, k); k += p.length; } return o; };

@@ -22,7 +22,7 @@ O app é **um arquivo só**, o `index.html`, que roda 100% no navegador, offline
 | Módulo | Entrada → saída |
 |---|---|
 | `azw3.js` → `Azw3` | `convert(epub, { say, tick, fixed? })` → AZW3 (KF8): PalmDOC, esqueleto + fragmentos, índices, fontes, layout fixo |
-| `kfx.js` → `Kfx` | `convert(epub, { say, tick })` → KFX: contêiner `CONT` + Amazon Ion; lê o EPUB com `Azw3._readEpub` |
+| `kfx.js` → `Kfx` | `convert(epub, { say, tick })` → KFX: contêiner `CONT` + Amazon Ion; lê o EPUB com `Azw3._readEpub`. O formato está documentado em [`FORMATO-KFX.md`](FORMATO-KFX.md) |
 | `manga.js` → `Manga` | `convert(arquivo PDF ou CBZ, opções)` → AZW3 de layout fixo: páginas em cinza com 16 tons, aparo, páginas duplas, Panel View |
 | `kindle.js` → `Kindle` | `open(bytes)` → livro para o simulador: AZW3, KFX, EPUB ou PDF, em páginas ou capítulos |
 | `meta.js` → `Meta` | `open`/`save` dos metadados de EPUB/PDF; `search`/`details`/`cover` no Open Library |
