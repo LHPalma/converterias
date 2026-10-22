@@ -19,6 +19,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Mangá** (PDF escaneado ou CBZ → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
 | **Escaneado → PDF** (OCR no navegador, no padrão do EPUB → PDF) | disponível |
 | **Índice do PDF** (marcadores gerados do sumário impresso ou dos títulos, com editor manual) | disponível |
+| **Metadados** (ver e editar os do EPUB/PDF; buscar no Open Library, com capa) | disponível |
 | **Simular no Kindle** (abre AZW3, KFX, EPUB ou PDF numa tela de Kindle, sem converter) | disponível |
 | **PDF escaneado → PDF** pela linha de comando (`tools/scan2pdf.py`, OCR com ocrmypdf no computador) | disponível |
 
@@ -118,6 +119,21 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 
 - As páginas são copiadas como estão (texto, imagens e links ficam iguais); a rotação soma-se à que a página já tinha. Os marcadores das páginas que ficam são mantidos, e os das páginas removidas somem.
 - Páginas duplicadas repetem seus recursos (fontes e imagens) no arquivo, então o PDF cresce um pouco. PDFs com senha não são suportados.
+
+## Metadados
+
+Mostra e edita os metadados de um EPUB ou PDF e busca os que faltam no **Open Library**, no estilo do "Baixar metadados" do Calibre (a pesquisa de como o Calibre faz está em [`docs/metadados-calibre.md`](docs/metadados-calibre.md)).
+
+1. Toque em **Metadados** (ou abra com `#metadados`) e escolha um `.epub` ou `.pdf`. Aparecem os dados que o arquivo já tem.
+   - No EPUB: título, autores, editora, data, ISBN, idioma, série e número, assuntos, descrição e capa.
+   - No PDF: título, autores, descrição e assuntos, que é o que o PDF guarda.
+2. **Buscar no Open Library**: a busca vai pelo **ISBN**, se houver um válido; senão, pelo **título e o 1º autor**, limpos como no Calibre (sem subtítulo, parênteses e palavras como "the"). Os resultados vêm ordenados como no Calibre: primeiro o ISBN igual, depois o que tem capa, o título exato e o mesmo idioma.
+3. **Usar este** preenche os campos com o que o Open Library tem, incluindo a descrição da obra e a capa grande. O que ele não tem fica como estava, e um idioma `pt-BR` não vira `pt`. Ajuste o que quiser; **Desfazer** volta ao que estava antes.
+4. **Salvar com estes metadados** grava um arquivo novo, com o nome no padrão do app.
+   - **No EPUB:** o `content.opf` recebe o ISBN como `urn:isbn:` (o identificador único do livro não muda) e a série como `calibre:series` e `belongs-to-collection` do EPUB 3. A capa nova entra no lugar da imagem da antiga, então a página de capa do livro também muda; num livro sem capa, ela é criada.
+   - **No PDF:** grava título, autor, assunto e palavras-chave.
+
+A busca manda para o Open Library só o título, o autor ou o ISBN; o arquivo não sai do aparelho. Precisa de internet. Os dados e as capas do Open Library são de licença aberta.
 
 ## Índice do PDF
 

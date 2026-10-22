@@ -14,7 +14,7 @@ module.exports = async () => {
   if (start < 0 || end < start) throw new Error('não achei o script principal em src/template.html');
   fs.writeFileSync(path.join(ROOT, 'cobertura-app.js'), '\n'.repeat(start + 1) + lines.slice(start + 1, end).join('\n') + '\n');
   const src = { PDFLIB: 'vendor/pdf-lib.min.js', FONTKIT: 'vendor/fontkit.umd.min.js', JSZIP: 'vendor/jszip.min.js', PDFJS: 'vendor/pdf.min.js',
-    AZW3: 'src/azw3.js', KFX: 'src/kfx.js', MANGA: 'src/manga.js', KINDLE: 'src/kindle.js', TESSERACT: 'vendor/ocr/tesseract.min.js', SPELL: 'src/spell.js', OCR: 'src/ocr.js' };
+    AZW3: 'src/azw3.js', KFX: 'src/kfx.js', MANGA: 'src/manga.js', KINDLE: 'src/kindle.js', META: 'src/meta.js', TESSERACT: 'vendor/ocr/tesseract.min.js', SPELL: 'src/spell.js', OCR: 'src/ocr.js' };
   let html = lines.slice(0, start).join('\n');
   for (const [k, f] of Object.entries(src)) html = html.replace(`<script>/*${k}*/</script>`, `<script src="${f}"></script>`);
   html = html.replace('/*PDFJSWORKER*/', read('vendor/pdf.worker.min.js').replace(/<\/script/g, '<\\/script'));
