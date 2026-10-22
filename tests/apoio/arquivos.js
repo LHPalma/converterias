@@ -370,7 +370,15 @@ async function scanPages(browser, specs, { lang = 'pt' } = {}) {
   return out;
 }
 
+/* CBZ: ZIP de imagens ({ caminho: bytes }), com ComicInfo.xml opcional */
+async function makeCbz(images, comicInfo = null) {
+  const zip = new JSZip();
+  for (const [name, bytes] of Object.entries(images)) zip.file(name, bytes);
+  if (comicInfo) zip.file('ComicInfo.xml', `<?xml version="1.0"?><ComicInfo>${Object.entries(comicInfo).map(([k, v]) => `<${k}>${v}</${k}>`).join('')}</ComicInfo>`);
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
 module.exports = {
   ROOT, scanPages, ICON, ICON_BIG, LOREM, GIF_1x1, FAKE_TTF, RICH_CHAPTER, file, bmp, withExif, drawImage, comicPage,
-  makeEpub, idpfObfuscate, encryptionXml, makeTextPdf, makeNumberedPdf, makeImagePdf, makeEncryptedPdf, makeBookPdf, addOutline,
+  makeEpub, idpfObfuscate, encryptionXml, makeTextPdf, makeNumberedPdf, makeImagePdf, makeEncryptedPdf, makeBookPdf, addOutline, makeCbz,
 };

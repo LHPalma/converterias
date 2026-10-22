@@ -33,6 +33,9 @@
   input[type=file] { display:none; }
   #status { min-height:1.4em; font-size:.9rem; color:var(--muted); margin-top:12px; }
   #status.err { color:#d33; }
+  #upd { position:fixed; left:12px; right:12px; bottom:12px; z-index:10; display:flex; gap:12px; align-items:center; justify-content:space-between; max-width:560px; margin:0 auto; padding:10px 14px; border-radius:12px; background:var(--fg); color:var(--card); box-shadow:0 4px 16px rgba(0,0,0,.3); font-size:.9rem; }
+  #upd[hidden] { display:none; }
+  #upd button { width:auto; padding:7px 14px; }
   #list { list-style:none; margin:12px 0 0; padding:0; }
   #list li { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; font-size:.85rem; word-break:break-word; }
   #list .n { display:block; font-weight:600; }
@@ -242,6 +245,7 @@
     <button id="simBtn" type="button" class="alt" style="display:none">Simular no Kindle</button>
   </div>
   <small id="note"></small>
+  <div id="upd" role="status" hidden><span>Nova versão do app disponível.</span><button type="button" id="updBtn">Atualizar</button></div>
 </main>
 
 <dialog id="sim" aria-label="Simulador de Kindle">
@@ -309,8 +313,8 @@
               get note() { return kFmt() === 'kfx'
                 ? 'Gera KFX, o formato atual da Amazon: copie o arquivo para a pasta "documents" do Kindle (por cabo USB). Dá tipografia melhor e funciona nos Kindles de 2015 para cá; em aparelhos antigos, prefira o AZW3. Sai só o texto estruturado e as imagens — sem CSS do EPUB e sem fontes embutidas. EPUB vira KFX direto; PDF vira EPUB primeiro (com as opções acima) e depois KFX. O KFX não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Nome do arquivo: Título em Title Case - Subtítulo (Autor).'
                 : 'Gera AZW3 (KF8), o formato que o Kindle abre por cabo USB: copie o arquivo para a pasta "documents" do Kindle. EPUB vira AZW3 direto; PDF vira EPUB primeiro (com as opções acima) e depois AZW3. O AZW3 não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Fontes embutidas no EPUB são descartadas (o Kindle usa as dele). Nome do arquivo: Título em Title Case - Subtítulo (Autor).'; } },
-    manga: { pick: 'Toque para escolher um ou mais .pdf', accept: '.pdf,application/pdf', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'mangás',
-             note: 'Transforma cada página do PDF numa página de imagem e gera um AZW3 de layout fixo — o formato que a Amazon usa para mangá e HQ: copie o arquivo para a pasta "documents" do Kindle. As páginas saem em tons de cinza, no tamanho exato da tela do aparelho escolhido, e as margens brancas da digitalização são aparadas. Páginas duplas podem ser partidas em duas, na ordem de leitura. Serve para PDF de página escaneada; PDF de texto corrido fica melhor em Para Kindle. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
+    manga: { pick: 'Toque para escolher um ou mais .pdf ou .cbz', accept: '.pdf,.cbz,.cbr,application/pdf,application/vnd.comicbook+zip', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'mangás',
+             note: 'Transforma cada página do PDF numa página de imagem e gera um AZW3 de layout fixo — o formato que a Amazon usa para mangá e HQ: copie o arquivo para a pasta "documents" do Kindle. As páginas saem em tons de cinza, no tamanho exato da tela do aparelho escolhido, e as margens brancas da digitalização são aparadas. Páginas duplas podem ser partidas em duas, na ordem de leitura. Serve para PDF de página escaneada e para CBZ (as imagens vão na ordem dos nomes; o título vem do ComicInfo.xml, se houver); PDF de texto corrido fica melhor em Para Kindle. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     ocr: { pick: 'Toque para escolher um ou mais PDFs escaneados', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Faz OCR do PDF escaneado no próprio aparelho e gera um PDF com a mesma diagramação do EPUB → PDF: parágrafos, capítulos (pelos cabeçalhos das páginas), ilustrações como imagem e capa. Na primeira vez baixa o motor de OCR (cerca de 6 MB), que depois fica guardado para uso offline. É lento (alguns segundos por página; no celular, bem mais) e consome memória: prefira um livro por vez. Erros de reconhecimento continuam no texto. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
@@ -2121,7 +2125,7 @@ ${spine.join('\n')}
   }
 
   // ---------- juntar PDFs ou EPUBs ----------
-  const stem = f => f.name.replace(/\.(pdf|epub|jpe?g|png|webp|gif|bmp|avif)$/i, '');
+  const stem = f => f.name.replace(/\.(pdf|epub|cbz|cbr|jpe?g|png|webp|gif|bmp|avif)$/i, '');
   async function kindOf(f) {
     const head = new Uint8Array(await f.slice(0, 1024).arrayBuffer());
     const s = String.fromCharCode(...head);
@@ -2687,8 +2691,13 @@ ${spine.join('\n')}
     return { bytes: a.bytes, title: a.title, authors: a.authors, chapters: a.sections, garbledPages: meta.garbledPages };
   }
 
-  async function mangaConvert(file, say) {   // PDF -> AZW3 de layout fixo (mangá)
-    if (await kindOf(file) !== 'pdf') throw new Error('a aba Mangá recebe PDF.');
+  async function mangaConvert(file, say) {   // PDF ou CBZ -> AZW3 de layout fixo (mangá)
+    const k = await kindOf(file);
+    if (k !== 'pdf' && !(k === 'epub' && /\.cb[zr]$/i.test(file.name))) {   // ZIP: só como CBZ (há .cbr que é ZIP por dentro)
+      const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+      if (String.fromCharCode(...head) === 'Rar!') throw new Error('CBR (compactado em RAR) ainda não dá: extraia e compacte as imagens em ZIP (.cbz), ou converta para PDF.');
+      throw new Error('a aba Mangá recebe PDF ou CBZ.');
+    }
     initPdfjs();
     return Manga.convert(file, {
       say, tick,
@@ -2988,7 +2997,16 @@ ${spine.join('\n')}
   window.__converterias = { titleCase, cleanAuthors, makeName, resolve, buildBlocks, modeOf, composeAcc, guessLang, findGutters, clusterLines,
     buildRuns, finalizeLines, pageLines, drawnShapes, figureRegions, shapeVec, shapeCorr, kindOf, guessTitle, pdfOutline, writeOutline, jpegInfo,
     imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs, simOpen, sim };
-  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // nova versão: o service worker novo assume a página (skipWaiting + claim); se já havia um antes, avisa e recarrega no toque
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    const hadSW = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadSW) $('upd').hidden = false; });
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // app instalado volta do segundo plano sem recarregar: procura atualização nessa hora também
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
+  }
+  $('updBtn').addEventListener('click', () => location.reload());
 })();
 </script>
 </body>

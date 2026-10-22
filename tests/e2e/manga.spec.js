@@ -127,7 +127,7 @@ test('erros: arquivo que não é PDF e PDF ilegível', async ({ page }) => {
   await open(page, 'manga');
   await page.setInputFiles('#file', [A.file('a.epub', await A.makeEpub()), A.file('b.pdf', Buffer.from('%PDF-1.7 lixo'))]);
   await page.click('#go');
-  await expect(page.locator('#list .s.err').nth(0)).toHaveText('Erro: a aba Mangá recebe PDF.');
+  await expect(page.locator('#list .s.err').nth(0)).toHaveText('Erro: a aba Mangá recebe PDF ou CBZ.');
   await expect(page.locator('#list .s.err').nth(1)).toHaveText('Erro: não consegui ler este PDF.');
 });
 
@@ -146,4 +146,44 @@ test('16 tons do e-ink: as páginas só têm cinzas múltiplos de 17 (desligado,
   expect(on.every(v => v % 17 === 0)).toBe(true);
   const off = await tones((await manga(page, pdf, async p => { await p.check('#mPng'); await p.uncheck('#mEink'); })).book);
   expect(off.length).toBeGreaterThan(16);
+});
+
+test('CBZ: imagens na ordem natural dos nomes (com pastas), lixo do macOS fora, título e autor do ComicInfo.xml', async ({ page }) => {
+  const comic = await A.comicPage(page, { layout: [[0.6, 0.4], [1], [0.35, 0.65]] }), dbl = await A.comicPage(page, { w: 1600, h: 1100, double: true });
+  const cbz = await A.makeCbz({
+    'Vol 3/p10.png': A.ICON_BIG, 'Vol 3/p2.png': dbl, 'Vol 3/p1.png': comic,   // fora de ordem no ZIP
+    '__MACOSX/Vol 3/._p1.png': Buffer.from('lixo'), 'Vol 3/.oculto.png': Buffer.from('lixo'), 'Vol 3/leia.txt': Buffer.from('não é imagem'),
+  }, { Series: 'Vagabond', Number: '3', Writer: 'Takehiko Inoue' });
+  const [out] = await run(page, 'manga', [A.file('vagabond-03.cbz', cbz, 'application/vnd.comicbook+zip')]);
+  expect(out.name).toBe('Vagabond 3 (Takehiko Inoue).azw3');
+  const k = readAzw3(out.buf);
+  expect(k.files).toHaveLength(4);                                   // p1, p2 partida em duas, p10
+  expect(k.files[0]).toContain('app-amzn-magnify');                  // p1: quadros detectados
+  expect(k.files[3]).not.toContain('app-amzn-magnify');              // p10: ilustração inteira, por último
+  for (const r of pages(k)) { const [w, h] = imgSize(r); expect(w <= 1072 && h <= 1448 && (w === 1072 || h === 1448)).toBe(true); }
+  await expect(page.locator('#list .s.ok')).toHaveText(/✓ 4 páginas · /);
+});
+
+test('CBZ sem ComicInfo: título pelo nome do arquivo; .cbr que é ZIP por dentro também entra', async ({ page }) => {
+  const comic = await A.comicPage(page);
+  const [a, b] = await run(page, 'manga', [A.file('meu mangá 01.cbz', await A.makeCbz({ '001.jpg': comic, '002.jpg': comic })), A.file('outro.cbr', await A.makeCbz({ 'a.png': comic }))]);
+  expect([a.name, b.name].sort()).toEqual(['Meu Mangá 01.azw3', 'Outro.azw3']);
+  expect(readAzw3((a.name.startsWith('Meu') ? a : b).buf).files).toHaveLength(2);
+});
+
+test('CBZ/CBR: erros claros (RAR, ZIP quebrado, sem imagens)', async ({ page }) => {
+  await open(page, 'manga');
+  await page.setInputFiles('#file', [
+    A.file('a.cbr', Buffer.concat([Buffer.from('Rar!\x1a\x07\x00'), Buffer.alloc(64)])),
+    A.file('b.cbz', Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.alloc(64)])),
+    A.file('c.cbz', await A.makeCbz({ 'leia.txt': Buffer.from('só texto') })),
+    A.file('d.epub', await A.makeEpub()),
+  ]);
+  await page.click('#go');
+  const err = page.locator('#list .s.err');
+  await expect(err).toHaveCount(4);
+  await expect(err.nth(0)).toHaveText(/^Erro: CBR \(compactado em RAR\) ainda não dá/);
+  await expect(err.nth(1)).toHaveText('Erro: não consegui ler este CBZ (o ZIP não abre).');
+  await expect(err.nth(2)).toHaveText('Erro: o CBZ não tem imagens.');
+  await expect(err.nth(3)).toHaveText('Erro: a aba Mangá recebe PDF ou CBZ.');
 });

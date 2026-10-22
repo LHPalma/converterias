@@ -16,7 +16,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
-| **Mangá** (PDF escaneado → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
+| **Mangá** (PDF escaneado ou CBZ → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
 | **Escaneado → PDF** (OCR no navegador, no padrão do EPUB → PDF) | disponível |
 | **Simular no Kindle** (abre AZW3, KFX, EPUB ou PDF numa tela de Kindle, sem converter) | disponível |
 | **PDF escaneado → PDF** pela linha de comando (`tools/scan2pdf.py`, OCR com ocrmypdf no computador) | disponível |
@@ -25,7 +25,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 
 ### Como usar
 
-1. Abra a página (GitHub Pages deste repositório) e, se quiser, instale como app (menu do Chrome → *Adicionar à tela inicial*). Depois da primeira visita ela abre **offline**.
+1. Abra a página (GitHub Pages deste repositório) e, se quiser, instale como app (menu do Chrome → *Adicionar à tela inicial*). Depois da primeira visita ela abre **offline**. Quando sai uma versão nova, aparece **Nova versão do app disponível** no pé da página: toque em *Atualizar*.
 2. Toque na área pontilhada e escolha um ou mais `.epub`.
 3. Ajuste tamanho da página, fonte e margens (os padrões reproduzem um PDF de referência: Carta, 15 pt, margens 25,5 / 27,2 / 31 mm).
 4. **Converter** → **Baixar tudo em um ZIP**, **Baixar todos os PDFs (sem ZIP)** ou **Compartilhar PDFs…** (quando o navegador permite).
@@ -156,13 +156,14 @@ Depois de converter, cada AZW3, KFX, EPUB ou PDF gerado também ganha **Simular 
 
 ## Mangá
 
-Mangá e HQ no Kindle não são texto que reflui: são **uma imagem por página**, num AZW3 de **layout fixo** — é assim que a Amazon entrega quadrinhos. Esta aba faz isso a partir de um PDF escaneado.
+Mangá e HQ no Kindle não são texto que reflui: são **uma imagem por página**, num AZW3 de **layout fixo** — é assim que a Amazon entrega quadrinhos. Esta aba faz isso a partir de um PDF escaneado ou de um **CBZ** (o ZIP de imagens em que muito mangá circula).
 
-1. Toque em **Mangá** (ou abra com `#manga`) e escolha um ou mais `.pdf`.
+1. Toque em **Mangá** (ou abra com `#manga`) e escolha um ou mais `.pdf` ou `.cbz`.
 2. Escolha o **aparelho** (define o tamanho exato das páginas), o **sentido de leitura** e o que fazer com as páginas duplas.
 3. **Converter** e copie os `.azw3` para a pasta `documents` do Kindle.
 
-- **O que ele faz com cada página:** rasteriza, converte para tons de cinza (o e-ink não mostra cor), apara a moldura branca da digitalização, redimensiona para a tela do aparelho sem distorcer, centraliza o que sobra e reduz aos **16 tons de cinza** que a tela e-ink mostra (0, 17, 34 … 255, como o Kindle Comic Converter; sem pontilhado, que com JPEG vira ruído e borra as retículas — dá para desligar). Páginas duplas (em paisagem) podem ser partidas em duas, já na ordem de leitura — na leitura da direita para a esquerda, a metade direita vem primeiro.
+- **CBZ:** as imagens entram na ordem dos nomes (com números em ordem natural: `2.jpg` antes de `10.jpg`, inclusive dentro de pastas), ignorando o lixo do macOS (`__MACOSX`, arquivos ocultos); imagem quebrada é pulada. Título e autor vêm do `ComicInfo.xml` (Series, Number, Title, Writer), se houver; senão, do nome do arquivo. O **CBR** (compactado em RAR) ainda não: extraia e compacte as imagens em ZIP, ou converta para PDF.
+- **O que ele faz com cada página:** rasteriza (o PDF) ou reduz (a imagem do CBZ), converte para tons de cinza (o e-ink não mostra cor), apara a moldura branca da digitalização, redimensiona para a tela do aparelho sem distorcer, centraliza o que sobra e reduz aos **16 tons de cinza** que a tela e-ink mostra (0, 17, 34 … 255, como o Kindle Comic Converter; sem pontilhado, que com JPEG vira ruído e borra as retículas — dá para desligar). Páginas duplas (em paisagem) podem ser partidas em duas, já na ordem de leitura — na leitura da direita para a esquerda, a metade direita vem primeiro.
 - **Panel View:** cada página sai com as regiões de magnificação da Amazon marcadas — duplo toque amplia um pedaço da página e o toque seguinte caminha para o próximo, na ordem de leitura. A marcação é a que o Kindle reconhece: um `<a class="app-amzn-magnify">` cobrindo cada região, com `targetId` e `ordinal`, e a mesma imagem ampliada e deslocada dentro de um `<div>` escondido — então o arquivo **não cresce**, é a mesma imagem reaproveitada. Quatro opções:
   - **Detectar os quadrinhos da página**: acha os quadros de verdade e faz cada um preencher a tela, com o resto da página **tampado em branco** — é assim que o Guided View da Amazon isola um quadro. A página que não dá para separar com cortes retos sai sem painel nenhum, de propósito: painel de verdade numa página e quadrante arbitrário na outra é pior de usar do que não ter painel ali.
   - **4 painéis** (quadrantes, ampliação maior) ou **2 painéis** (metades de cima e de baixo).
