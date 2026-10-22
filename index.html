@@ -125,6 +125,7 @@
     </div>
     <label class="chk"><input id="just" type="checkbox" checked> Texto justificado</label>
     <label class="chk"><input id="cover" type="checkbox" checked> Capa em página cheia</label>
+    <label class="chk"><input id="pnum" type="checkbox" checked> Números de página</label>
   </div>
 
   <div class="card" id="optKindle" hidden>
@@ -3208,8 +3209,11 @@ if (typeof module !== 'undefined') module.exports = Ocr;
     return out.map(titleCase);
   }
   const bad = /[\\/:*?"<>|\u0000-\u001f]+/g;
+  const titleParts = t => t.split(/\s*:\s+|\s+[-–—]\s+|\s*[–—]\s*/).map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  // título dos metadados do PDF: o mesmo padrão do nome do arquivo (Title Case, subtítulo depois de " - ")
+  const pdfTitle = t => { const p = titleParts(t || ''); return p.length ? p.map(titleCase).join(' - ') : (t || '').trim(); };
   function makeName(title, authors) {
-    const parts = title.split(/\s*:\s+|\s+[-–—]\s+|\s*[–—]\s*/).map(s => s.replace(bad, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const parts = titleParts(title).map(s => s.replace(bad, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
     let name = (parts.length ? parts : ['Livro']).map(titleCase).join(' - ');
     let au = authors.flatMap(cleanAuthors).filter(Boolean);
     if (au.length > 3) au = [au[0] + ' et al.'];
@@ -3285,6 +3289,8 @@ if (typeof module !== 'undefined') module.exports = Ocr;
       if (node.nodeType !== 1) return;
       const tag = (node.localName || node.nodeName).toLowerCase();
       if (SKIP.has(tag) || node.hasAttribute('hidden')) return;
+      const nid = node.getAttribute('id');   // destino de link/sumário: em que página cai (marcadores do PDF)
+      if (nid) { const full = itemHref + '#' + nid; if (cur) (cur.ids || (cur.ids = [])).push(full); else blocks.push({ t: 'anchor', id: full }); }
 
       if (tag === 'img' || tag === 'image') {
         const v = node.getAttribute('src') || node.getAttribute('href') || node.getAttribute('xlink:href');
@@ -3406,9 +3412,34 @@ if (typeof module !== 'undefined') module.exports = Ocr;
         let doc = xml(raw, /html/.test(item.type) ? 'application/xhtml+xml' : 'text/html');
         if (doc.querySelector('parsererror')) doc = new DOMParser().parseFromString(raw, 'text/html');
         const root = doc.querySelector('body') || doc.documentElement;
-        blocks.push({ t: 'chap' });
+        blocks.push({ t: 'chap', href: item.href });
         buildBlocks(root, item.href, blocks);
       }
+      // sumário do livro (nav do EPUB 3 ou toc.ncx do EPUB 2) -> marcadores do PDF
+      const toc = [], tocTarget = (base, href) => { const h = href.split('#'); let f = h[1] || ''; try { f = decodeURIComponent(f); } catch (e) {} return resolve(base, h[0] || base.split('/').pop()) + (f ? '#' + f : ''); };
+      try {
+        const navItem = Object.values(manifest).find(m => /\bnav\b/.test(m.props)), navF = navItem && find(navItem.href);
+        const navDoc = navF && xml(await navF.async('string'), 'application/xhtml+xml');
+        const navEl = navDoc && [...navDoc.getElementsByTagNameNS('*', 'nav')].find(n => /\btoc\b/.test(n.getAttribute('epub:type') || n.getAttributeNS('http://www.idpf.org/2007/ops', 'type') || ''));
+        const ol0 = navEl && [...navEl.getElementsByTagNameNS('*', 'ol')][0];
+        const fromOl = ol => [...ol.children].filter(e => e.localName === 'li').map(li => {
+          const a = [...li.children].find(e => e.localName === 'a' || e.localName === 'span'), sub = [...li.children].find(e => e.localName === 'ol');
+          return { title: a ? a.textContent.replace(/\s+/g, ' ').trim() : '', target: a && a.getAttribute('href') ? tocTarget(navItem.href, a.getAttribute('href')) : null, items: sub ? fromOl(sub) : [] };
+        });
+        if (ol0) toc.push(...fromOl(ol0));
+        else {
+          const tocId = (opf.querySelector('spine') || { getAttribute: () => null }).getAttribute('toc');
+          const ncx = manifest[tocId] || Object.values(manifest).find(m => m.type === 'application/x-dtbncx+xml'), ncxF = ncx && find(ncx.href);
+          const nd = ncxF && xml(await ncxF.async('string'));
+          const fromPts = el => [...el.children].filter(e => e.localName === 'navPoint').map(np => {
+            const lab = np.getElementsByTagNameNS('*', 'text')[0], c = np.getElementsByTagNameNS('*', 'content')[0];
+            return { title: lab ? lab.textContent.replace(/\s+/g, ' ').trim() : '', target: c ? tocTarget(ncx.href, c.getAttribute('src') || '') : null, items: fromPts(np) };
+          });
+          const map = nd && nd.getElementsByTagNameNS('*', 'navMap')[0];
+          if (map) toc.push(...fromPts(map));
+        }
+      } catch (e) { console.warn('sumário ignorado', e); }
+
       const useCover = $('cover').checked && coverPath;
       if (useCover) {  // a capa vira a 1ª página; remove a repetição nos primeiros capítulos
         let chaps = 0;
@@ -3557,10 +3588,15 @@ if (typeof module !== 'undefined') module.exports = Ocr;
         }
       }
 
+      // destinos (arquivo e arquivo#id) -> página onde o conteúdo seguinte começa; títulos, para quando não há sumário
+      const firstPage = pdf.getPageCount(), at = new Map(), heads = [];
+      let pend = [];
+      const land = ids => { const k = pdf.getPageCount() - 1; for (const id of pend.concat(ids || [])) if (!at.has(id)) at.set(id, k); pend = []; };
       let needNew = true, firstInChap = true, prevHeading = false, n = 0;
       for (const b of blocks) {
         if (++n % 40 === 0) { say(`Montando páginas… ${Math.round(100 * n / blocks.length)}%`); await tick(); }
-        if (b.t === 'chap') { needNew = true; firstInChap = true; prevHeading = false; continue; }
+        if (b.t === 'chap') { needNew = true; firstInChap = true; prevHeading = false; pend.push(b.href); continue; }
+        if (b.t === 'anchor') { pend.push(b.id); continue; }
         if (needNew || !page) { newPage(); needNew = false; }
 
         if (b.t === 'hr') { y -= bodyLh / 2; continue; }
@@ -3570,6 +3606,7 @@ if (typeof module !== 'undefined') module.exports = Ocr;
           const s = Math.min(1, textW / (im.w * 0.75), (H - mT - mB) / (im.h * 0.75));
           const dw = im.w * 0.75 * s, dh = im.h * 0.75 * s;
           if (y - dh < mB && y < H - mT - 1) newPage();
+          land();
           page.drawImage(im.img, { x: mL + (textW - dw) / 2, y: y - dh, width: dw, height: dh });
           y -= dh + bodyLh * 0.6; firstInChap = false; prevHeading = false;
           continue;
@@ -3593,6 +3630,7 @@ if (typeof module !== 'undefined') module.exports = Ocr;
         let li = 0;
         for (const L of lines) {
           if (y - lh < mB - 0.01) newPage();
+          if (li === 0) { land(b.ids); if (isH && (b.kind === 'h1' || b.kind === 'h2')) heads.push({ lvl: +b.kind[1], title: b.toks.map(t => t.parts ? t.parts.map(q => q.w).join('') : ' ').join('').replace(/\s+/g, ' ').trim(), page: pdf.getPageCount() - 1 }); }
           const baseline = y - size;
           const first = li === 0, last = li === lines.length - 1 || L.forced;
           const avail = w - (first ? indent : 0);
@@ -3622,7 +3660,26 @@ if (typeof module !== 'undefined') module.exports = Ocr;
         prevHeading = isH; firstInChap = false;
       }
 
-      pdf.setTitle(title); if (author) pdf.setAuthor(author);
+      // números de página no rodapé (a capa não conta)
+      if ($('pnum').checked) {
+        const ps = Math.max(7, body * 0.72), pages = pdf.getPages();
+        for (let k = firstPage; k < pages.length; k++) {
+          const t = String(k - firstPage + 1), tw = measure(Fr, t, ps);
+          pages[k].drawText(t, { x: (W - tw) / 2, y: Math.max(ps * 0.5, mB / 2 - ps / 3), size: ps, font: Fr.font });
+        }
+      }
+      // marcadores: o sumário do livro, cada item na página do seu destino (sem sumário: os títulos h1/h2)
+      const pageOf = t => t == null ? null : at.has(t) ? at.get(t) : at.has(t.split('#')[0]) ? at.get(t.split('#')[0]) : null;
+      const mark = list => list.flatMap(e => { const p = pageOf(e.target), kids = mark(e.items); return e.title && p != null ? [{ title: e.title, page: p, items: kids }] : kids; });
+      let tops = mark(toc);
+      if (!tops.length && heads.length) {
+        const top = Math.min(...heads.map(h => h.lvl));
+        tops = [];
+        for (const h of heads) { const e = { title: h.title, page: h.page, items: [] }; if (h.lvl === top || !tops.length) tops.push(e); else tops[tops.length - 1].items.push(e); }
+      }
+      if (tops.length) writeOutline(pdf, tops);
+
+      pdf.setTitle(pdfTitle(title)); if (author) pdf.setAuthor(author);
       pdf.setProducer('epub2pdf (local)'); pdf.setCreator('epub2pdf');
       say('Gerando o PDF…'); await tick();
       const bytes = await pdf.save();
@@ -4969,7 +5026,7 @@ ${spine.join('\n')}
       setItem(i, `✓ ${n} ${n > 1 ? 'páginas' : 'página'}`, 'ok'); await tick();
     }
     writeOutline(out, tops);   // um marcador por arquivo, com os marcadores originais dentro
-    out.setTitle(title); out.setProducer('Converterias'); out.setCreator('Converterias');
+    out.setTitle(pdfTitle(title)); out.setProducer('Converterias'); out.setCreator('Converterias');
     say('Gerando o PDF…'); await tick();
     const bytes = await out.save();
     return { bytes, pages: out.getPageCount(), title, authors: [] };
@@ -5210,7 +5267,7 @@ ${spine.join('\n')}
       out.addPage([pw, ph]).drawImage(img, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
       setItem(i, `✓ ${img.width}×${img.height}`, 'ok');
     }
-    out.setTitle(title); out.setProducer('Converterias'); out.setCreator('Converterias');
+    out.setTitle(pdfTitle(title)); out.setProducer('Converterias'); out.setCreator('Converterias');
     say('Gerando o PDF…'); await tick();
     return { bytes: await out.save(), pages: list.length, title, authors: [] };
   }
@@ -5223,6 +5280,7 @@ ${spine.join('\n')}
       const m = part.match(/^(\d*)(?:-(\d*))?$/);
       if (!m || (!m[1] && !m[2])) throw new Error(`Páginas inválidas: "${part}". Use algo como 1-5, 8, 10-12.`);
       const a = m[1] ? +m[1] : 1, b = m[2] === undefined ? a : m[2] ? +m[2] : n;
+      if (m[2] === '' && a > n) continue;   // "11-" num PDF de 10 páginas: nada (não a última)
       for (let p = Math.max(1, Math.min(a, b)); p <= Math.min(n, Math.max(a, b)); p++) set.add(p - 1);
     }
     if (!set.size) throw new Error(`Esse PDF tem ${n} página(s); nenhuma cai em "${text}".`);
@@ -5664,8 +5722,8 @@ ${spine.join('\n')}
     img.alt = 'Página ' + (sim.page + 1); img.draggable = false;
     const place = (el, r) => { el.style.left = simPct(r.x); el.style.top = simPct(r.y); el.style.width = simPct(r.w); el.style.height = simPct(r.h); };
     if (b.pdf) {   // PDF: a página inteira, reduzida para caber na tela do aparelho; as bordas viram a página
-      const k = sim.page, [W, H] = simSize();
-      b.render(k, W, H).then(r => { if (sim.book !== b || sim.page !== k) return; img.src = r.src; place(img, r.box); simScreen.prepend(img); })
+      const k = sim.page, [W, H] = simSize(), rid = sim.rid = (sim.rid || 0) + 1;   // só o desenho mais recente entra na tela
+      b.render(k, W, H).then(r => { if (sim.book !== b || sim.rid !== rid) return; img.src = r.src; place(img, r.box); simScreen.prepend(img); })
         .catch(e => { console.error(e); $('simHint').textContent = 'Não consegui desenhar esta página.'; });
       for (const [side, dir] of [['left', -1], ['right', 1]]) {
         const t = document.createElement('button'); t.type = 'button'; t.className = 'kturn'; t.style[side] = 0; t.setAttribute('aria-label', dir > 0 ? 'Avançar' : 'Voltar');

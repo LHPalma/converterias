@@ -11,7 +11,7 @@ test('PDFs: soma as páginas na ordem, um marcador por arquivo com os marcadores
   expect(out.name).toBe('Relatório Parte.pdf');   // título: o começo comum dos nomes
   const pdf = await readPdf(out.buf);
   expect(pdf.pages).toBe(5);
-  expect(pdf.title).toBe('Relatório parte');
+  expect(pdf.title).toBe('Relatório Parte');   // no padrão do nome do arquivo
   expect(pdf.outline).toEqual([
     { title: 'Relatório parte 1', page: 0, items: [{ title: 'Introdução', page: 0, items: [{ title: 'Detalhe', page: 1, items: [] }] }] },
     { title: 'Relatório parte 2', page: 2, items: [{ title: 'Nomeado', page: 4, items: [] }] },

@@ -66,7 +66,9 @@ test('pageRange: intervalos, abertos, repetidos e erros', async ({ page }) => {
   expect(await call(page, 'pageRange', '-2; 2 3', 5)).toEqual([0, 1, 2]);
   expect(await call(page, 'pageRange', '5-3', 9)).toEqual([2, 3, 4]);   // invertido
   expect(await call(page, 'pageRange', '8-20', 10)).toEqual([7, 8, 9]);
-  for (const [t, err] of [['x', /Páginas inválidas: "x"/], ['-', /Páginas inválidas/], ['1-2-3', /Páginas inválidas/], ['20-30', /nenhuma cai em "20-30"/]])
+  expect(await call(page, 'pageRange', '10-', 10)).toEqual([9]);
+  expect(await call(page, 'pageRange', '3, 11-', 10)).toEqual([2]);   // aberto além do fim: nada, sem puxar a última
+  for (const [t, err] of [['x', /Páginas inválidas: "x"/], ['-', /Páginas inválidas/], ['1-2-3', /Páginas inválidas/], ['20-30', /nenhuma cai em "20-30"/], ['11-', /nenhuma cai em "11-"/]])
     await expect(page.evaluate(t => window.__converterias.pageRange(t, 10), t)).rejects.toThrow(err);
 });
 
