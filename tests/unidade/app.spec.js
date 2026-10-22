@@ -185,7 +185,7 @@ test('drawnShapes: formas e imagens desenhadas viram caixas na página', async (
   })();
   const r = await page.evaluate(async b64 => {
     const C = window.__converterias; C.initPdfjs();
-    const doc = await pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)) }).promise, pg = await doc.getPage(1), vp = pg.getViewport({ scale: 1 });
+    const doc = await pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)), isEvalSupported: false }).promise, pg = await doc.getPage(1), vp = pg.getViewport({ scale: 1 });
     const { OPS, Util } = pdfjsLib, ol = await pg.getOperatorList();
     const res = C.drawnShapes(ol, vp, vp.width, vp.height, new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject].filter(Boolean)), OPS, Util);
     return { kinds: res.shapes.map(s => s.k).sort(), hasImg: res.hasImg, bigImg: res.bigImg, img: res.shapes.find(s => s.k === 'img').b.map(Math.round) };

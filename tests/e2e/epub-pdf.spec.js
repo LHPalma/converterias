@@ -164,7 +164,7 @@ test('margens e posição do texto seguem as opções (em mm)', async ({ page })
   });
   const left = await page.evaluate(async b64 => {
     window.__converterias.initPdfjs();
-    const doc = await pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)) }).promise;
+    const doc = await pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)), isEvalSupported: false }).promise;
     const tc = await (await doc.getPage(1)).getTextContent();
     return Math.min(...tc.items.filter(i => i.str.trim()).map(i => i.transform[4]));
   }, out.buf.toString('base64'));

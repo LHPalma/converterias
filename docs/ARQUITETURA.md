@@ -8,7 +8,8 @@ O app é **um arquivo só**, o `index.html`, que roda 100% no navegador, offline
 
 | Marcador no template | Vira |
 |---|---|
-| `/*PDFLIB*/`, `/*FONTKIT*/`, `/*JSZIP*/`, `/*PDFJS*/`, `/*PDFJSWORKER*/`, `/*TESSERACT*/` | as bibliotecas de `vendor/` |
+| `/*PDFLIB*/`, `/*FONTKIT*/`, `/*JSZIP*/`, `/*TESSERACT*/` | as bibliotecas de `vendor/` |
+| `/*PDFJS*/`, `/*PDFJSWORKER*/` | o pdf.js 4 (`vendor/pdf.min.mjs`, `vendor/pdf.worker.min.mjs`). Ele só existe como módulo ES, então o build (`esm_global`) troca o `export` final por `globalThis.pdfjsLib = {…}` e embrulha o resto numa função, para rodar como script comum. O worker continua módulo: o pdf.js o abre com `new Worker(…, { type: "module" })` a partir de um blob |
 | `/*AZW3*/`, `/*KFX*/`, `/*MANGA*/`, `/*KINDLE*/`, `/*META*/`, `/*OCR*/`, `/*SPELL*/` | os módulos de `src/*.js`, cada um num `<script>` próprio |
 | `/*FONTS*/{}` | as fontes de `vendor/fonts/` em base64 (IBM Plex Serif e Noto Serif para o grego) |
 | `/*@app/x.js*/` | as partes do script principal, de `src/app/x.js` (ver abaixo) |
