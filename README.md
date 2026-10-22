@@ -18,6 +18,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
 | **Mangá** (PDF escaneado ou CBZ → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
 | **Escaneado → PDF** (OCR no navegador, no padrão do EPUB → PDF) | disponível |
+| **Índice do PDF** (marcadores gerados do sumário impresso ou dos títulos, com editor manual) | disponível |
 | **Simular no Kindle** (abre AZW3, KFX, EPUB ou PDF numa tela de Kindle, sem converter) | disponível |
 | **PDF escaneado → PDF** pela linha de comando (`tools/scan2pdf.py`, OCR com ocrmypdf no computador) | disponível |
 
@@ -117,6 +118,26 @@ PDF não guarda "parágrafos", só letras posicionadas. O conversor lê cada pá
 
 - As páginas são copiadas como estão (texto, imagens e links ficam iguais); a rotação soma-se à que a página já tinha. Os marcadores das páginas que ficam são mantidos, e os das páginas removidas somem.
 - Páginas duplicadas repetem seus recursos (fontes e imagens) no arquivo, então o PDF cresce um pouco. PDFs com senha não são suportados.
+
+## Índice do PDF
+
+O índice do PDF são os **marcadores**: o sumário clicável que o leitor de PDF mostra ao lado das páginas. Esta aba monta esse índice e grava no próprio PDF, como o painel de Marcadores do Acrobat.
+
+1. Toque em **Índice do PDF** (ou abra com `#indice`) e escolha um `.pdf`.
+2. Se o PDF já tem marcadores, eles aparecem para editar. Se não tem, o app **gera um sozinho**:
+   - **do sumário impresso** (páginas de "Título ..... 12"), casando cada entrada com o título no texto, o que acerta a página mesmo quando a numeração impressa não bate com a do PDF; entradas que não existem no livro ficam de fora;
+   - ou, sem sumário impresso, **dos títulos do texto** (letra maior que a do corpo), sem contar cabeçalhos e rodapés que se repetem.
+
+   Dá para escolher a fonte e gerar de novo com **Gerar índice**.
+3. **Edite à mão**:
+   - renomeie e mude a página direto na lista;
+   - **↑ ↓** muda a ordem (o marcador vai com os que estão dentro dele);
+   - **← →** muda o nível;
+   - **✕** remove; **Limpar tudo** apaga a lista inteira;
+   - **+ Marcador** cria um na página mostrada.
+
+   Ao tocar num marcador, a página dele aparece embaixo. Navegue com ◀ ▶ e use **Usar esta página** para apontar o marcador para outra página. **Desfazer** volta passo a passo.
+4. **Salvar PDF com este índice**: sai o mesmo PDF, com o índice novo no lugar do antigo e o resto intacto. O PDF abre com o painel de marcadores.
 
 ## Para Kindle (AZW3 ou KFX)
 
