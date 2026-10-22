@@ -1819,7 +1819,10 @@ const Manga = (() => {
     cx.putImageData(img, 0, 0);
 
     const out = [];
-    if (o.split && box.w > box.h) {   // página dupla: parte em duas, na ordem de leitura
+    // página dupla: parte em duas, na ordem de leitura. A página inteira precisa ser
+    // deitada; só o recorte não basta, porque um bloco curto de texto numa página em pé
+    // apara para uma faixa larga e viraria duas meias páginas.
+    if (o.split && W > H && box.w > box.h) {
       const half = Math.floor(box.w / 2);
       const esq = [box.x, box.y, half, box.h], dir = [box.x + half, box.y, box.w - half, box.h];
       for (const [sx, sy, sw, sh] of (o.rtl ? [dir, esq] : [esq, dir]))
@@ -2262,7 +2265,9 @@ const Manga = (() => {
       // em mangá, entre 0,58 e 0,85, mesmo num cheio de página inteira como o Vagabond.
       const judged = pages.filter(p => p.det).map(p => p.det.framed).sort((a, b) => a - b);
       const median = judged.length ? judged[judged.length >> 1] : 1;
-      const looksLikeText = judged.length >= 5 && median < 0.3;
+      // A camada de texto decide sozinha quando a maioria das páginas é prosa digitada:
+      // não depende de como o aparelho rasteriza as letras, que mexe na moldurice.
+      const looksLikeText = judged.length >= 5 && median < 0.3 || src.count >= 3 && src.textPages >= src.count * 0.6;
 
       const meta = { title, author, lang: opt.lang || 'pt', rtl: o.rtl, uuid, panels: o.panels };
       const epub = await buildEpub(pages, dev, meta);
@@ -2286,8 +2291,15 @@ const Manga = (() => {
     let title = '', author = '';
     try { const md = (await doc.getMetadata()).info || {}; title = String(md.Title || '').trim(); author = String(md.Author || '').trim(); }
     catch (e) { /* PDF sem metadados */ }
-    return { title, author, count: doc.numPages, close: () => doc.destroy(),
-      page: async (i, dev, o) => { const pg = await doc.getPage(i + 1); try { return await pageToImages(pg, dev, o); } finally { pg.cleanup(); } } };
+    const src = { title, author, count: doc.numPages, close: () => doc.destroy(), textPages: 0,
+      page: async (i, dev, o) => { const pg = await doc.getPage(i + 1);
+        try {
+          // camada de texto de página de livro: mangá digital traz no máximo os balões
+          try { const tc = await pg.getTextContent(); if (tc.items.reduce((n, t) => n + (t.str || '').length, 0) >= 900) src.textPages++; }
+          catch (e) { /* sem camada de texto */ }
+          return await pageToImages(pg, dev, o);
+        } finally { pg.cleanup(); } } };
+    return src;
   }
   const IMG = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
   const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
