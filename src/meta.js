@@ -147,6 +147,7 @@ const Meta = (() => {
       tags: dcs(d, 'subject').map(e => e.textContent.trim()).filter(Boolean),
       series: metaVal('calibre:series') || (coll ? coll.textContent.trim() : ''),
       seriesIndex: metaVal('calibre:series_index') || (collIdx ? collIdx.textContent.trim() : ''),
+      rating: Math.max(0, Math.min(5, Math.round((+metaVal('calibre:rating') || 0) / 2))),   // o Calibre guarda de 0 a 10
       cover,
     };
   }
@@ -183,7 +184,7 @@ const Meta = (() => {
     // série: o meta do Calibre (que o Kindle e o Calibre leem) e o belongs-to-collection do EPUB 3
     for (const x of [...d.getElementsByTagNameNS(OPF, 'meta')]) {
       const n = x.getAttribute('name'), p = x.getAttribute('property');
-      if (n === 'calibre:series' || n === 'calibre:series_index' || p === 'belongs-to-collection' || (p === 'group-position' || p === 'collection-type') && /^#col/.test(x.getAttribute('refines') || '')) x.remove();
+      if (n === 'calibre:series' || n === 'calibre:series_index' || n === 'calibre:rating' || p === 'belongs-to-collection' || (p === 'group-position' || p === 'collection-type') && /^#col/.test(x.getAttribute('refines') || '')) x.remove();
     }
     if (m.series) {
       const add = (attrs, text) => { const e = d.createElementNS(OPF, 'meta'); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; md.appendChild(e); };
@@ -196,6 +197,15 @@ const Meta = (() => {
       }
     }
     // capa nova: troca o arquivo da antiga no lugar (a página de capa do livro também passa a mostrá-la); sem capa, cria
+    if (m.rating > 0) { const e = d.createElementNS(OPF, 'meta'); e.setAttribute('name', 'calibre:rating'); e.setAttribute('content', String(Math.min(5, m.rating) * 2)); md.appendChild(e); }
+    // sem capa: tira só as marcas de capa (a imagem continua no livro, porque alguma página pode usá-la)
+    if (m.removeCover && !m.newCover) {
+      for (const it of d.getElementsByTagNameNS(OPF, 'item')) {
+        const pr = (it.getAttribute('properties') || '').split(/\s+/).filter(x => x && x !== 'cover-image');
+        if (pr.length) it.setAttribute('properties', pr.join(' ')); else it.removeAttribute('properties');
+      }
+      for (const x of [...d.getElementsByTagNameNS(OPF, 'meta')]) if (x.getAttribute('name') === 'cover') x.remove();
+    }
     if (m.newCover) {
       const ci = epubCoverItem(b);
       if (ci) {
@@ -227,7 +237,7 @@ const Meta = (() => {
     const p = b.pdf, kw = p.getKeywords() || '';
     const authors = (p.getAuthor() || '').split(/\s*[;&]\s*|\s+e\s+|\s+and\s+/).map(s => s.trim()).filter(Boolean);
     return { title: p.getTitle() || '', authors, publisher: '', date: '', lang: '', isbn: '', description: p.getSubject() || '',
-      tags: kw.split(/\s*[;,]\s*/).map(s => s.trim()).filter(Boolean), series: '', seriesIndex: '', cover: null };
+      tags: kw.split(/\s*[;,]\s*/).map(s => s.trim()).filter(Boolean), series: '', seriesIndex: '', rating: 0, cover: null };
   }
   async function writePdf(b, m) {
     const p = b.pdf;
