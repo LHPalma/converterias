@@ -6,10 +6,10 @@ const { test, expect, open, run } = require('../apoio/app');
 const base = require('@playwright/test');
 const A = require('../apoio/arquivos');
 
-const MODES = { e2p: '', p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado', sim: '#simular' };
+const MODES = { e2p: '', p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado', sim: '#simular', idx: '#indice' };
 // painel de opções visível em cada aba
-const PANELS = { e2p: ['optE2P'], p2e: ['optP2E'], merge: ['optMerge'], i2p: ['optI2P'], p2i: ['optP2I'], org: ['optOrg'], kindle: ['optKindle', 'optP2E'], manga: ['optManga'], ocr: ['optE2P', 'optOCR'], sim: [] };
-const ALL = ['optE2P', 'optP2E', 'optMerge', 'optI2P', 'optP2I', 'optOrg', 'optKindle', 'optManga', 'optOCR'];
+const PANELS = { e2p: ['optE2P'], p2e: ['optP2E'], merge: ['optMerge'], i2p: ['optI2P'], p2i: ['optP2I'], org: ['optOrg'], kindle: ['optKindle', 'optP2E'], manga: ['optManga'], ocr: ['optE2P', 'optOCR'], sim: [], idx: ['optIdx'] };
+const ALL = ['optE2P', 'optP2E', 'optMerge', 'optI2P', 'optP2I', 'optOrg', 'optKindle', 'optManga', 'optOCR', 'optIdx'];
 
 for (const [mode, hash] of Object.entries(MODES)) {
   test(`aba ${mode}: abre pelo endereço${hash ? ` (${hash})` : ''}, mostra só as opções dela e o texto de ajuda`, async ({ page }) => {

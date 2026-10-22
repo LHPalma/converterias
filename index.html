@@ -51,6 +51,14 @@
   .orginfo { font-size:.85rem; color:var(--muted); margin-bottom:10px; word-break:break-word; }
   .orgrow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; } .orgrow > button:not(.sm) { flex:1 1 40%; }
   button.sm { width:auto; padding:8px 12px; font-size:.85rem; } .orgrow .inl { font-size:.85rem; color:var(--muted); } .orgrow input[type=number] { width:72px; padding:8px; font-size:.95rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); }
+  #idxList { list-style:none; margin:0; padding:0; max-height:55vh; overflow:auto; border:1px solid var(--border); border-radius:10px; }
+  #idxList li { display:flex; gap:6px; align-items:center; padding:5px 6px; border-bottom:1px solid var(--border); cursor:pointer; }
+  #idxList li.sel { background:color-mix(in srgb, var(--accent) 16%, transparent); }
+  #idxList li .t { flex:1; min-width:0; padding:6px 8px; font-size:.9rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--fg); }
+  #idxList li .p { width:64px; padding:6px; font-size:.9rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--fg); }
+  #idxList .vazio { color:var(--muted); font-size:.85rem; padding:12px; cursor:default; }
+  #idxPrev { margin-top:12px; text-align:center; } #idxCv { max-width:100%; max-height:50vh; border:1px solid var(--border); background:#fff; }
+  #idxPg { font:.85rem monospace; color:var(--muted); }
   #orgGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; margin-top:12px; }
   .oc { border:2px solid var(--border); border-radius:8px; padding:6px 4px 4px; text-align:center; background:var(--bg); cursor:pointer; user-select:none; -webkit-user-select:none; }
   .oc.sel { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 16%, var(--bg)); } .oc.drag { opacity:.4; } .oc.over { outline:2px dashed var(--accent); }
@@ -102,6 +110,7 @@
     <button type="button" data-mode="kindle">Para Kindle</button>
     <button type="button" data-mode="manga">Mangá</button>
     <button type="button" data-mode="ocr">Escaneado → PDF</button>
+    <button type="button" data-mode="idx">Índice do PDF</button>
     <button type="button" data-mode="sim">Simular no Kindle</button>
   </div>
   <div class="card">
@@ -233,6 +242,28 @@
       <button type="button" data-org="first" title="Para o início">⇤</button><button type="button" data-org="left" title="Uma para trás">◀</button><button type="button" data-org="right" title="Uma para frente">▶</button><button type="button" data-org="last" title="Para o fim">⇥</button>
       <button type="button" data-org="ccw" title="Girar à esquerda">↺</button><button type="button" data-org="cw" title="Girar à direita">↻</button><button type="button" data-org="dup" title="Duplicar">⧉</button><button type="button" data-org="del" title="Remover">✕</button>
     </div>
+  </div>
+
+  <div class="card" id="optIdx" hidden>
+    <div id="idxInfo" class="orginfo">Escolha um PDF para montar o índice (os marcadores do PDF).</div>
+    <div class="orgrow">
+      <select id="idxSrc" aria-label="De onde gerar"><option value="auto">Gerar do sumário impresso (ou dos títulos)</option><option value="printed">Gerar só do sumário impresso</option><option value="headings">Gerar dos títulos do texto</option></select>
+      <button type="button" class="sm" id="idxAuto">Gerar índice</button>
+    </div>
+    <div class="orgrow">
+      <button type="button" class="alt sm" id="idxAdd" title="Novo marcador na página mostrada abaixo">+ Marcador</button>
+      <button type="button" class="alt sm" data-ix="up" title="Subir">↑</button><button type="button" class="alt sm" data-ix="down" title="Descer">↓</button>
+      <button type="button" class="alt sm" data-ix="out" title="Um nível acima">←</button><button type="button" class="alt sm" data-ix="in" title="Um nível abaixo (dentro do anterior)">→</button>
+      <button type="button" class="alt sm" data-ix="del" title="Remover">✕</button>
+      <button type="button" class="alt sm" id="idxUndo" data-ix="undo">Desfazer</button><button type="button" class="alt sm" data-ix="clear">Limpar tudo</button>
+    </div>
+    <ol id="idxList"></ol>
+    <div id="idxPrev" hidden>
+      <canvas id="idxCv" aria-label="Página"></canvas>
+      <div class="orgrow" style="justify-content:center"><button type="button" class="alt sm" data-ix="pp">◀</button><span id="idxPg"></span><button type="button" class="alt sm" data-ix="np">▶</button><button type="button" class="sm" id="idxUse" title="O marcador selecionado passa a apontar para esta página">Usar esta página</button></div>
+    </div>
+    <div class="orgrow" style="margin-top:12px"><button type="button" id="idxSave">Salvar PDF com este índice</button></div>
+    <div id="idxOut"></div>
   </div>
 
   <button id="go" disabled>Converter</button>
@@ -3062,6 +3093,7 @@ if (typeof module !== 'undefined') module.exports = Ocr;
   let org = null;   // Organizar: { file, doc, n, thumbs, pages: [{ src, rot, sel }], hist }
   const orgGrid = $('orgGrid');
   let files = [], results = [], thumbs = [], zipUrl = null, items = [], busy = false;
+  let idx = null;   // aba Índice do PDF (ver idxLoad)
   const MODES = {
     e2p: { pick: 'Toque para escolher um ou mais .epub', accept: '.epub,application/epub+zip', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Os PDFs são gerados direto no app (sem tela de impressão), com as margens e o tamanho de página escolhidos. Nome do arquivo: Título em Title Case - Subtítulo (Autor). Se o Chrome perguntar, permita vários downloads.' },
@@ -3084,6 +3116,8 @@ if (typeof module !== 'undefined') module.exports = Ocr;
            note: 'Faz OCR do PDF escaneado no próprio aparelho e gera um PDF com a mesma diagramação do EPUB → PDF: parágrafos, capítulos (pelos cabeçalhos das páginas), ilustrações como imagem e capa. Na primeira vez baixa o motor de OCR (cerca de 6 MB), que depois fica guardado para uso offline. É lento (alguns segundos por página; no celular, bem mais) e consome memória: prefira um livro por vez. Erros de reconhecimento continuam no texto. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
+    idx: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
+           note: 'Monta o índice do PDF (os marcadores, o sumário clicável que o leitor mostra ao lado): gera automaticamente a partir do sumário impresso do livro ou dos títulos do texto, e você ajusta à mão — renomear, mudar a página, subir/descer, mudar o nível, remover ou criar marcadores olhando a página. O resto do PDF fica como está.' },
     sim: { pick: 'Toque para escolher um AZW3, KFX, EPUB ou PDF', accept: '.azw3,.kfx,.epub,.pdf,.mobi,.azw', ext: '', mime: '', many: '',
            note: 'Abre o livro numa tela de Kindle, sem converter nada: AZW3 e KFX como o aparelho mostra (mangá com os quadros do Panel View), EPUB como chega pelo Enviar para Kindle, PDF como fica copiado por cabo. Dá para trocar o aparelho, a fonte, as margens e o espaçamento. É uma aproximação: o Kindle usa o motor e as fontes dele. Livros comprados na Amazon (com DRM) não abrem.' },
     merge: { pick: 'Toque para escolher os PDFs ou EPUBs a juntar', accept: '.pdf,.epub,application/pdf,application/epub+zip', ext: '', mime: '', many: '',
@@ -3092,7 +3126,7 @@ if (typeof module !== 'undefined') module.exports = Ocr;
   const syncOcrOpts = () => { $('optOCR').hidden = !(mode === 'ocr' || ((mode === 'p2e' || mode === 'kindle') && $('pOcr').checked)); };
   const kFmt = () => (($('kFmt') || {}).value || 'azw3');
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : location.hash === '#simular' ? 'sim' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : location.hash === '#simular' ? 'sim' : location.hash === '#indice' ? 'idx' : 'e2p';
   Manga.DEVICES.forEach((d, i) => $('mDev').add(new Option(d.label, d.id, !i, !i)));
 
   let cancelled = false;
@@ -3133,9 +3167,10 @@ if (typeof module !== 'undefined') module.exports = Ocr;
   };
   const pickFiles = list => {
     files = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    if (mode === 'org' || mode === 'sim') files = files.slice(0, 1);
+    if (mode === 'org' || mode === 'sim' || mode === 'idx') files = files.slice(0, 1);
     showFiles();
     if (mode === 'org' && files.length) orgLoad(files[0]);
+    if (mode === 'idx' && files.length) idxLoad(files[0]);
     if (mode === 'sim' && files.length) runSim();   // escolheu, já abre
   };
   fileEl.addEventListener('change', () => {
@@ -3155,10 +3190,10 @@ if (typeof module !== 'undefined') module.exports = Ocr;
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p' && m !== 'ocr'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; syncOcrOpts(); $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org';
-    go.style.display = m === 'org' ? 'none' : '';   // no Organizar, os botões de salvar ficam junto das páginas
-    if (m === 'org') $('orgOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
-    listEl.hidden = m === 'org'; orgReset();
+    $('optE2P').hidden = m !== 'e2p' && m !== 'ocr'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; syncOcrOpts(); $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org'; $('optIdx').hidden = m !== 'idx';
+    go.style.display = m === 'org' || m === 'idx' ? 'none' : '';   // no Organizar e no Índice, os botões de salvar ficam junto do editor
+    if (m === 'org') $('orgOut').append(statusEl, outBtns); else if (m === 'idx') $('idxOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
+    listEl.hidden = m === 'org' || m === 'idx'; orgReset(); idxReset();
     go.textContent = m === 'merge' ? 'Juntar' : m === 'i2p' ? 'Criar PDF' : m === 'sim' ? 'Abrir no simulador' : 'Converter';
     fileEl.accept = MODES[m].accept; fileEl.value = '';
     $('note').textContent = MODES[m].note;
@@ -3168,7 +3203,7 @@ if (typeof module !== 'undefined') module.exports = Ocr;
   $('kFmt').addEventListener('change', () => { $('note').textContent = MODES[mode].note; showFiles(); });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado', sim: '#simular' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado', sim: '#simular', idx: '#indice' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -4109,9 +4144,11 @@ if (typeof module !== 'undefined') module.exports = Ocr;
     } finally { doc.destroy(); spellDict = null; await ocrStop(); }
   }
 
-  async function pdfDocToEpub(doc, file, say) {
+  // opt.index: só descobre o sumário (para a aba Índice do PDF) — { skipOutline, prefer: 'auto' | 'printed' | 'headings' }
+  async function pdfDocToEpub(doc, file, say, opt = {}) {
     const { OPS, Util, AnnotationMode } = pdfjsLib;
-    const wantCover = $('pCover').checked, wantImgs = $('pImgs').checked, dropHf = $('pHf').checked;
+    const IX = opt.index || null;
+    const wantCover = !IX && $('pCover').checked, wantImgs = !IX && $('pImgs').checked, dropHf = IX ? true : $('pHf').checked;
     const IMG_OPS = new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.paintJpegXObject].filter(x => x !== undefined));
     const images = [];   // { name, bytes }
     const jpeg = async (cv, x, y, w, h, q = 0.85, maxDim = 0) => {   // recorta (e, se pedido, reduz) e codifica em JPEG
@@ -4709,9 +4746,9 @@ if (typeof module !== 'undefined') module.exports = Ocr;
     // 5) capítulos e sumário: marcadores do PDF; senão o sumário impresso; senão os títulos
     const norm = t => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     const heading = B => B.t === 'h' || (B.t === 'p' && B.lines.length <= 2 && textOf(B).length < 90);
-    let entries = [];
+    let entries = [], source = '';
     const toc = [];
-    try {
+    if (!(IX && IX.skipOutline)) try {
       const outline = await doc.getOutline();
       const walkOut = async (list, level) => {
         for (const it of list || []) {
@@ -4743,23 +4780,25 @@ if (typeof module !== 'undefined') module.exports = Ocr;
       const minL = Math.min(...t.map(e => e.level));
       if (t.filter(e => e.level === minL).length === 1 && t.some(e => e.level > minL)) t = t.filter(e => e.level > minL);   // capa-título envolvendo tudo
       const base = Math.min(...t.map(e => e.level));
-      entries = t.map(e => ({ ...e, level: Math.min(3, e.level - base), at: posOf(e) })).filter(e => e.at >= 0);
-    } else if (printedToc.length >= 4) {   // casa cada entrada do sumário impresso com o título no texto, na ordem
+      entries = t.map(e => ({ ...e, level: Math.min(3, e.level - base), at: posOf(e) })).filter(e => e.at >= 0); source = 'marcadores';
+    } else if (printedToc.length >= 4 && !(IX && IX.prefer === 'headings')) {   // casa cada entrada do sumário impresso com o título no texto, na ordem
       const minI = Math.min(...printedToc.map(e => e.indent)); let from = 0, hit = [];
       for (const e of printedToc) {
         const t = norm(e.title); if (!t) continue;
         const k = blocks.findIndex((B, i) => i >= from && heading(B) && B.t !== 'img' && (norm(textOf(B)) === t || (t.length > 6 && norm(textOf(B)).startsWith(t))));
         if (k >= 0) { hit.push({ title: e.title, level: Math.min(3, Math.round((e.indent - minI) / (1.5 * body))), at: k }); from = k + 1; }
       }
-      if (hit.length >= 3 && hit.length >= 0.6 * printedToc.length) entries = hit;
+      if (hit.length >= 3 && hit.length >= 0.6 * printedToc.length) { entries = hit; source = 'sumario'; }
     }
-    if (!entries.length) {
+    if (!entries.length && !(IX && IX.prefer === 'printed')) {
       let lvl = 0;
       for (let l = 1; l <= 4 && !lvl; l++) if (blocks.filter(B => B.t === 'h' && B.lvl === l).length >= 2) lvl = l;
       if (lvl) blocks.forEach((B, i) => { if (B.t === 'h' && B.lvl <= lvl + 1) entries.push({ title: textOf(B).trim(), level: B.lvl <= lvl ? 0 : 1, at: i }); });
+      if (entries.length) source = 'titulos';
     }
     entries = entries.map((e, i) => ({ e, i })).sort((a, b) => a.e.at - b.e.at || a.i - b.i).map(x => x.e);
     entries = entries.filter((e, i) => !(i && entries[i - 1].at === e.at && norm(entries[i - 1].title) === norm(e.title)));
+    if (IX) return { source, entries: entries.map(e => ({ title: e.title.replace(/\s+/g, ' ').trim(), level: e.level, page: (blocks[e.at] || { pageNo: 1 }).pageNo - 1 })) };
 
     // quais entradas abrem um arquivo novo: o nível mais raso que dê capítulos de tamanho razoável; "Parte/Livro" sempre abre
     const total = blocks.reduce((n, B) => n + textOf(B).length, 0);
@@ -5807,6 +5846,154 @@ ${spine.join('\n')}
     else if (e.key === 'Escape' && sim.book.fixed && sim.panel >= 0) { e.preventDefault(); sim.panel = -1; simRender(); }
   });
 
+  // ---------- Índice do PDF: marcadores gerados automaticamente e editados à mão ----------
+  // itens planos { title, page (0..n-1), level (0..) }; o nível de cada um é no máximo o do anterior + 1
+  const idxList = $('idxList'), idxCv = $('idxCv');
+  function idxReset() {
+    if (idx) { try { idx.doc.destroy(); } catch (e) {} }
+    idx = null; $('idxList').innerHTML = ''; $('idxPrev').hidden = true;
+    $('idxInfo').textContent = 'Escolha um PDF para montar o índice (os marcadores do PDF).';
+    $('optIdx').querySelectorAll('button, select').forEach(b => b.disabled = true);
+  }
+  const idxFix = () => { idx.items.forEach((it, k) => { it.level = Math.max(0, Math.min(it.level, k ? idx.items[k - 1].level + 1 : 0)); }); };
+  function idxInfo() {
+    const o = idx; if (!o) return;
+    $('idxInfo').textContent = `${o.file.name} · ${o.n} ${o.n === 1 ? 'página' : 'páginas'} · ${o.items.length} ${o.items.length === 1 ? 'marcador' : 'marcadores'}${o.note ? ' · ' + o.note : ''}`;
+    $('optIdx').querySelectorAll('button, select').forEach(b => b.disabled = false);
+    $('idxUndo').disabled = !o.hist.length;
+    for (const k of ['up', 'down', 'out', 'in', 'del']) $('optIdx').querySelector(`[data-ix="${k}"]`).disabled = o.sel < 0;
+    $('idxUse').disabled = o.sel < 0;
+  }
+  function idxRender() {
+    const o = idx;
+    idxList.innerHTML = '';
+    if (!o.items.length) idxList.innerHTML = '<li class="vazio">Sem marcadores. Gere automaticamente ou crie com “+ Marcador”.</li>';
+    o.items.forEach((it, k) => {
+      const li = document.createElement('li'); li.dataset.i = k; li.className = k === o.sel ? 'sel' : ''; li.style.paddingLeft = (6 + 20 * it.level) + 'px';
+      li.innerHTML = `<input class="t" aria-label="Título"><input class="p" type="number" min="1" max="${o.n}" inputmode="numeric" aria-label="Página">`;
+      li.querySelector('.t').value = it.title; li.querySelector('.p').value = it.page + 1;
+      idxList.appendChild(li);
+    });
+    idxInfo();
+  }
+  function idxDo(fn) {   // alteração com desfazer
+    idx.hist.push(JSON.stringify([idx.items, idx.sel])); if (idx.hist.length > 80) idx.hist.shift();
+    fn(); idxFix(); outBtns.style.display = 'none'; say(''); idxRender();
+  }
+  let idxDrawing = null;
+  async function idxShow(pg) {   // mostra uma página na prévia
+    const o = idx; if (!o) return;
+    o.prev = Math.max(0, Math.min(o.n - 1, pg)); $('idxPrev').hidden = false; $('idxPg').textContent = `${o.prev + 1} / ${o.n}`;
+    const want = o.prev;
+    if (idxDrawing) await idxDrawing.catch(() => {});
+    if (idx !== o || o.prev !== want) return;
+    idxDrawing = (async () => {
+      const page = await o.doc.getPage(want + 1), v1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 700 / Math.max(v1.width, v1.height) });
+      idxCv.width = Math.ceil(vp.width); idxCv.height = Math.ceil(vp.height);
+      const cx = idxCv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, idxCv.width, idxCv.height);
+      await page.render({ canvasContext: cx, viewport: vp }).promise; page.cleanup();
+      idxCv.dataset.page = want + 1;
+    })();
+    await idxDrawing.catch(() => {});
+  }
+  const flatOutline = (list, level = 0) => list.flatMap(e => [{ title: e.title, page: e.page, level }, ...flatOutline(e.items, level + 1)]);
+  async function idxLoad(file) {
+    idxReset(); initPdfjs();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let doc;
+    try { doc = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise; }
+    catch (e) { say(`${file.name}: ${e.name === 'PasswordException' ? 'PDF protegido por senha.' : 'não consegui ler este PDF.'}`, true); return; }
+    const o = idx = { file, bytes, doc, n: doc.numPages, items: [], sel: -1, prev: 0, hist: [], note: '' };
+    o.items = flatOutline(await pdfOutline(bytes.slice(), o.n));
+    if (idx !== o) return;
+    o.note = o.items.length ? 'os marcadores que o PDF já tinha' : '';
+    idxFix(); idxRender(); idxShow(0);
+    if (!o.items.length) await idxGenerate();   // sem índice nenhum: já gera um
+  }
+  async function idxGenerate() {
+    const o = idx; if (!o || busy) return;
+    busy = true; cancelled = false; outBtns.style.display = 'none';
+    $('optIdx').querySelectorAll('button, select').forEach(b => b.disabled = true);
+    try {
+      const prefer = $('idxSrc').value;
+      const r = await pdfDocToEpub(o.doc, o.file, m => say(m), { index: { skipOutline: true, prefer } });
+      if (idx !== o) return;
+      if (!r.entries.length) { say(prefer === 'printed' ? 'Não achei um sumário impresso neste PDF. Tente “dos títulos do texto”.' : 'Não achei títulos nem sumário impresso neste PDF: crie os marcadores à mão.', true); return; }
+      idxDo(() => { o.items = r.entries.map(e => ({ title: e.title, page: Math.min(o.n - 1, Math.max(0, e.page)), level: e.level })); o.sel = -1; });
+      o.note = r.source === 'sumario' ? 'gerado do sumário impresso' : 'gerado dos títulos do texto';
+      idxInfo();
+      say(`Pronto: ${o.items.length} marcadores (${o.note}). Confira, ajuste e salve.`);
+    } catch (e) { console.error(e); if (idx === o) say('Erro: ' + (e.message || e), true); }
+    finally { busy = false; if (idx === o) idxInfo(); }
+  }
+  async function idxSave() {
+    const o = idx; if (!o || busy) return;
+    busy = true; outBtns.style.display = 'none';
+    try {
+      say('Gerando o PDF…'); await tick();
+      const { PDFDocument, PDFName } = PDFLib;
+      let out;
+      try { out = await PDFDocument.load(o.bytes, { updateMetadata: false }); }
+      catch (e) { throw new Error(/encrypt/i.test(e.name + e.message) ? 'PDF protegido por senha.' : 'não consegui ler este PDF.'); }
+      out.catalog.delete(PDFName.of('Outlines'));   // o índice antigo sai inteiro; o novo entra no lugar
+      const tree = [], stack = [];
+      for (const it of o.items) {
+        const node = { title: it.title.trim() || 'Sem título', page: it.page, items: [] }, L = Math.min(it.level, stack.length);
+        stack.length = L; (L ? stack[L - 1].items : tree).push(node); stack.push(node);
+      }
+      if (tree.length) writeOutline(out, tree);
+      const data = await out.save();
+      results.forEach(r => URL.revokeObjectURL(r.url)); results = [];
+      results.push({ name: o.file.name, url: URL.createObjectURL(new Blob([data], { type: 'application/pdf' })), bytes: data, mime: 'application/pdf' });
+      await showOut(MODES.idx);
+      say(`Pronto: PDF com ${o.items.length} ${o.items.length === 1 ? 'marcador' : 'marcadores'}. Toque em baixar.`);
+    } catch (e) { console.error(e); say('Erro: ' + (e.message || e), true); }
+    busy = false;
+  }
+  $('idxAuto').addEventListener('click', idxGenerate);
+  $('idxSave').addEventListener('click', idxSave);
+  $('idxAdd').addEventListener('click', () => { if (!idx) return; idxDo(() => {
+    const at = idx.sel >= 0 ? idx.sel + 1 : idx.items.findIndex(it => it.page > idx.prev), k = at < 0 ? idx.items.length : at;
+    idx.items.splice(k, 0, { title: 'Novo marcador', page: idx.prev, level: idx.sel >= 0 ? idx.items[idx.sel].level : k ? idx.items[k - 1].level : 0 }); idx.sel = k;
+  }); const t = idxList.querySelector('li.sel .t'); if (t) { t.focus(); t.select(); } });
+  $('idxUse').addEventListener('click', () => { if (idx && idx.sel >= 0) idxDo(() => { idx.items[idx.sel].page = idx.prev; }); });
+  $('optIdx').addEventListener('click', e => {
+    const b = e.target.closest('[data-ix]'); if (!b || !idx || b.disabled) return;
+    const a = b.dataset.ix, o = idx, k = o.sel;
+    if (a === 'pp' || a === 'np') return idxShow(o.prev + (a === 'np' ? 1 : -1));
+    if (a === 'undo') { if (o.hist.length) { [o.items, o.sel] = JSON.parse(o.hist.pop()); outBtns.style.display = 'none'; idxRender(); } return; }
+    if (a === 'clear') return idxDo(() => { o.items = []; o.sel = -1; });
+    if (k < 0) return;
+    idxDo(() => {
+      // um marcador leva junto os de dentro dele (os seguintes de nível maior)
+      const end = (() => { let j = k + 1; while (j < o.items.length && o.items[j].level > o.items[k].level) j++; return j; })();
+      if (a === 'del') { o.items.splice(k, 1); o.sel = Math.min(k, o.items.length - 1); }
+      else if (a === 'in') { for (let j = k; j < end; j++) o.items[j].level++; }
+      else if (a === 'out') { if (o.items[k].level) for (let j = k; j < end; j++) o.items[j].level--; }
+      else if (a === 'up' && k) {   // passa o irmão anterior inteiro (com o que está dentro dele)
+        const L = o.items[k].level; let j = k - 1; while (j > 0 && o.items[j].level > L) j--;
+        if (o.items[j].level !== L) j = k - 1;
+        const block = o.items.splice(k, end - k); o.items.splice(j, 0, ...block); o.sel = j;
+      } else if (a === 'down' && end < o.items.length) {   // passa o irmão seguinte inteiro
+        const L = o.items[k].level; let e2 = end + 1;
+        if (o.items[end].level === L) while (e2 < o.items.length && o.items[e2].level > L) e2++;
+        const block = o.items.splice(k, end - k), at = e2 - block.length; o.items.splice(at, 0, ...block); o.sel = at;
+      }
+    });
+  });
+  idxList.addEventListener('click', e => {
+    const li = e.target.closest('li[data-i]'); if (!li || !idx) return;
+    const k = +li.dataset.i;
+    if (idx.sel !== k) { idx.sel = k; idxList.querySelectorAll('li').forEach(x => x.classList.toggle('sel', x === li)); idxInfo(); }
+    idxShow(idx.items[k].page);
+  });
+  idxList.addEventListener('change', e => {
+    const li = e.target.closest('li[data-i]'); if (!li || !idx) return;
+    const k = +li.dataset.i, it = idx.items[k];
+    if (e.target.classList.contains('t')) { const v = e.target.value.replace(/\s+/g, ' ').trim(); if (v !== it.title) idxDo(() => { it.title = v; }); }
+    else { const v = Math.round(+e.target.value); if (v >= 1 && v <= idx.n) { if (v - 1 !== it.page) idxDo(() => { it.page = v - 1; }); idxShow(v - 1); } else e.target.value = it.page + 1; }
+  });
+
   // aba Simular: abre o arquivo escolhido direto no simulador
   async function runSim() {
     const f = files[0]; if (!f) return;
@@ -5818,7 +6005,7 @@ ${spine.join('\n')}
   // funções internas, para os testes automáticos (tests/unidade); o app não usa
   window.__converterias = { titleCase, cleanAuthors, makeName, resolve, buildBlocks, modeOf, composeAcc, guessLang, findGutters, clusterLines,
     buildRuns, finalizeLines, pageLines, drawnShapes, figureRegions, shapeVec, shapeCorr, kindOf, guessTitle, pdfOutline, writeOutline, jpegInfo,
-    imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs, simOpen, sim };
+    imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs, simOpen, sim, get idx() { return idx; } };
   // nova versão: o service worker novo assume a página (skipWaiting + claim); se já havia um antes, avisa e recarrega no toque
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     const hadSW = !!navigator.serviceWorker.controller;
