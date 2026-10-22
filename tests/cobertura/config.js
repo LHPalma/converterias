@@ -5,10 +5,10 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
 const on = !!process.env.COVERAGE;
 
-// caminho do arquivo -> nome no relatório (o script principal sai de src/template.html, ver montar.js)
+// caminho do arquivo -> nome no relatório (o script principal sai de src/template.html e src/app/, ver montar.js)
 const sourcePath = p => {
   const f = p.replace(/^.*?(src\/|cobertura-app\.js)/, '$1');
-  return f === 'cobertura-app.js' ? 'src/template.html.js' : f;
+  return f === 'cobertura-app.js' ? 'src/template.html.js' : f;   // sem source map; com ele, as partes já vêm como src/app/*.js
 };
 
 const options = {
