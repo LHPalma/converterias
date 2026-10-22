@@ -155,8 +155,9 @@ base.test.describe('offline', () => {
     expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
     const sw = path.join(dir, 'sw.js');
     fs.writeFileSync(sw, fs.readFileSync(sw, 'utf8').replace(/converterias-v\d+/, 'converterias-v999'));   // versão nova no servidor
-    await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => r.update()));
-    await expect(page.locator('#upd')).toBeVisible();
+    const later = new Date(Date.now() + 60000); fs.utimesSync(sw, later, later);   // o http.server compara datas em segundos: no mesmo segundo responderia 304
+    // o navegador procura a versão nova (como ao voltar do segundo plano); repete até o service worker novo assumir
+    await expect.poll(async () => { await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => r.update()).catch(() => {})); return page.locator('#upd').isVisible(); }, { timeout: 30000 }).toBe(true);
     await expect(page.locator('#upd')).toContainText('Nova versão do app');
     await page.click('#updBtn');
     await expect(page.locator('#upd')).toBeHidden();
