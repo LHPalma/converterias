@@ -16,9 +16,28 @@ FONTS = {
 fonts = {k: base64.b64encode((v / "fonts" / f"{n}.woff").read_bytes()).decode() for k, n in FONTS.items()}
 
 html = (root / "src" / "template.html").read_text(encoding="utf-8")
-for marker, f in (("/*PDFLIB*/", "pdf-lib.min.js"), ("/*FONTKIT*/", "fontkit.umd.min.js"), ("/*JSZIP*/", "jszip.min.js"),
-                  ("/*PDFJS*/", "pdf.min.js"), ("/*PDFJSWORKER*/", "pdf.worker.min.js")):
+def esm_global(src, name):
+    """O pdf.js 4+ só vem como módulo ES: o export final vira globalThis.<name> e o resto fica dentro de uma função,
+    para rodar como script comum (como o app faz com todas as bibliotecas) sem espalhar nomes no escopo global."""
+    m = re.search(r"export\{([^}]*)\};?\s*$", src)
+    if not m:
+        sys.exit(f"{name}: não achei o export final do módulo")
+    pairs = [p.strip().split(" as ") for p in m[1].split(",")]
+    body = src[:m.start()].replace("import.meta.url", "location.href")   # só nos caminhos de Node, que o navegador não usa
+    if "import.meta" in body:
+        sys.exit(f"{name}: o módulo usa import.meta de um jeito que o build não sabe converter")
+    return '(() => {"use strict";\n' + body + "\nglobalThis." + name + " = {" + ",".join(f"{b}:{a}" for a, b in pairs) + "};\n})();"
+
+
+for marker, f in (("/*PDFLIB*/", "pdf-lib.min.js"), ("/*FONTKIT*/", "fontkit.umd.min.js"), ("/*JSZIP*/", "jszip.min.js")):
     html = html.replace(marker, esc((v / f).read_text(encoding="utf-8")))
+html = html.replace("/*PDFJS*/", esc(esm_global((v / "pdf.min.mjs").read_text(encoding="utf-8"), "pdfjsLib")))
+# fontes-padrão do PDF (Times, Helvetica, Courier, Symbol, Dingbats) para quando o PDF não as embute: sem elas o pdf.js
+# usa as fontes do aparelho, e o resultado muda de um aparelho para outro (ver initPdfjs em src/app/imagens.js)
+pdf_fonts = {f.name: base64.b64encode(f.read_bytes()).decode() for f in sorted((v / "pdfjs-fonts").iterdir())}
+html = html.replace("/*PDFJSFONTS*/{}", json.dumps(pdf_fonts))
+# o worker continua módulo: o pdf.js 4 o abre com new Worker(..., { type: "module" })
+html = html.replace("/*PDFJSWORKER*/", esc((v / "pdf.worker.min.mjs").read_text(encoding="utf-8")))
 html = html.replace("/*TESSERACT*/", esc((v / "ocr" / "tesseract.min.js").read_text(encoding="utf-8")))
 html = html.replace("/*SPELL*/", esc((root / "src" / "spell.js").read_text(encoding="utf-8")))
 html = html.replace("/*OCR*/", esc((root / "src" / "ocr.js").read_text(encoding="utf-8")))

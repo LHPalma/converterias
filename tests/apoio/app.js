@@ -60,7 +60,7 @@ async function pdfText(page, buf) {
   return page.evaluate(async b64 => {
     window.__converterias.initPdfjs();
     const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const doc = await pdfjsLib.getDocument({ data }).promise, out = [];
+    const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise, out = [];
     for (let i = 1; i <= doc.numPages; i++) out.push((await (await doc.getPage(i)).getTextContent()).items.map(x => x.str).join(' ').replace(/\s+/g, ' '));
     doc.destroy();
     return out;

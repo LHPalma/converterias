@@ -185,7 +185,7 @@ test('drawnShapes: formas e imagens desenhadas viram caixas na página', async (
   })();
   const r = await page.evaluate(async b64 => {
     const C = window.__converterias; C.initPdfjs();
-    const doc = await pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)) }).promise, pg = await doc.getPage(1), vp = pg.getViewport({ scale: 1 });
+    const doc = await pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)), isEvalSupported: false }).promise, pg = await doc.getPage(1), vp = pg.getViewport({ scale: 1 });
     const { OPS, Util } = pdfjsLib, ol = await pg.getOperatorList();
     const res = C.drawnShapes(ol, vp, vp.width, vp.height, new Set([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject].filter(Boolean)), OPS, Util);
     return { kinds: res.shapes.map(s => s.k).sort(), hasImg: res.hasImg, bigImg: res.bigImg, img: res.shapes.find(s => s.k === 'img').b.map(Math.round) };
@@ -264,4 +264,19 @@ test('pdfOutline e writeOutline: marcadores lidos e gravados de volta', async ({
   const tree = await page.evaluate(b64 => window.__converterias.pdfOutline(Uint8Array.from(atob(b64), c => c.charCodeAt(0)), 3), src.toString('base64'));
   expect(tree).toEqual([{ title: 'A', page: 0, items: [{ title: 'A.1', page: 1, items: [] }] }, { title: 'Fora', page: 2, items: [] }]);   // B (página 4) fica fora de 3 páginas
   expect(await page.evaluate(() => window.__converterias.pdfOutline(new Uint8Array([1, 2, 3]), 1))).toEqual([]);
+});
+
+test('pdf.js usa as fontes-padrão embutidas no app (não as do aparelho) quando o PDF não embute a fonte', async ({ page }) => {
+  const pdf = await A.makeTextPdf({ chapters: 1 });   // Times-Roman e Times-Bold sem embutir
+  const r = await page.evaluate(async b64 => {
+    window.__converterias.initPdfjs();
+    const doc = await pdfjsLib.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)) }).promise, pg = await doc.getPage(1);
+    const ol = await pg.getOperatorList(), names = [...new Set(ol.fnArray.flatMap((f, i) => f === pdfjsLib.OPS.setFont ? [ol.argsArray[i][0]] : []))];
+    const fonts = names.map(n => pg.commonObjs.get(n));
+    return { n: fonts.length, missing: fonts.map(f => f.missingFile), system: fonts.map(f => !!f.systemFontInfo), embedded: Object.keys(PDFJS_FONTS).length };
+  }, pdf.toString('base64'));
+  expect(r.n).toBe(2);
+  expect(r.missing).toEqual([false, false]);   // desenhadas com a FoxitSerif do app
+  expect(r.system).toEqual([false, false]);
+  expect(r.embedded).toBe(14);
 });

@@ -223,12 +223,12 @@
       else if (fn === OPS.beginGroup) { stack.push(ctm); if (a[0] && a[0].matrix) ctm = Util.transform(ctm, a[0].matrix); }
       else if (fn === OPS.endGroup) ctm = stack.pop() || ctm;
       else if (fn === OPS.constructPath) {
-        const mm = a[2];   // [minX, maxX, minY, maxY] no espaço do usuário
-        if (mm && mm.length === 4 && isFinite(mm[0] + mm[1] + mm[2] + mm[3])) pending = pending ? [Math.min(pending[0], mm[0]), Math.max(pending[1], mm[1]), Math.min(pending[2], mm[2]), Math.max(pending[3], mm[3])] : mm;
+        const mm = a[2];   // [minX, minY, maxX, maxY] no espaço do usuário (pdf.js 4; o 3 usava [minX, maxX, minY, maxY])
+        if (mm && mm.length === 4 && isFinite(mm[0] + mm[1] + mm[2] + mm[3])) pending = pending ? [Math.min(pending[0], mm[0]), Math.min(pending[1], mm[1]), Math.max(pending[2], mm[2]), Math.max(pending[3], mm[3])] : mm;
       }
       else if (PAINT.has(fn)) {
         if (pending) {
-          const b = toPage([[pending[0], pending[2]], [pending[1], pending[2]], [pending[0], pending[3]], [pending[1], pending[3]]]), w = b[2] - b[0], h = b[3] - b[1];
+          const b = toPage([[pending[0], pending[1]], [pending[2], pending[1]], [pending[0], pending[3]], [pending[2], pending[3]]]), w = b[2] - b[0], h = b[3] - b[1];
           if ((w > 0 || h > 0) && w * h < 0.55 * W * H) shapes.push({ b, k: Math.max(w, h) < 2.5 ? 'dot' : Math.min(w, h) < 2.2 && Math.max(w, h) > 8 ? 'rule' : 'vec' });   // formas do tamanho da página são fundo
         }
         pending = null;

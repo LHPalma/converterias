@@ -31,15 +31,24 @@ module.exports = async () => {
   }
   fs.writeFileSync(path.join(ROOT, 'cobertura-app.js'), out.join('\n') + '\n//# sourceMappingURL=data:application/json;base64,' +
     Buffer.from(JSON.stringify({ version: 3, file: 'cobertura-app.js', sources, sourcesContent: content, names: [], mappings: vlqMap(map) })).toString('base64') + '\n');
-  const src = { PDFLIB: 'vendor/pdf-lib.min.js', FONTKIT: 'vendor/fontkit.umd.min.js', JSZIP: 'vendor/jszip.min.js', PDFJS: 'vendor/pdf.min.js',
+  // o pdf.js 4 é módulo ES: vira script comum como no build.py (esm_global)
+  const pdfjs = read('vendor/pdf.min.mjs'), ex = /export\{([^}]*)\};?\s*$/.exec(pdfjs);
+  if (!ex) throw new Error('não achei o export final do pdf.js');
+  fs.writeFileSync(path.join(ROOT, 'cobertura-pdf.js'), '(() => {"use strict";\n' + pdfjs.slice(0, ex.index).replace(/import\.meta\.url/g, 'location.href') +
+    '\nglobalThis.pdfjsLib = {' + ex[1].split(',').map(p => p.trim().split(' as ')).map(([a, b]) => `${b}:${a}`).join(',') + '};\n})();\n');
+  const src = { PDFLIB: 'vendor/pdf-lib.min.js', FONTKIT: 'vendor/fontkit.umd.min.js', JSZIP: 'vendor/jszip.min.js', PDFJS: 'cobertura-pdf.js',
     AZW3: 'src/azw3.js', KFX: 'src/kfx.js', MANGA: 'src/manga.js', KINDLE: 'src/kindle.js', META: 'src/meta.js', TESSERACT: 'vendor/ocr/tesseract.min.js', SPELL: 'src/spell.js', OCR: 'src/ocr.js' };
   let html = lines.slice(0, start).join('\n');
   for (const [k, f] of Object.entries(src)) html = html.replace(`<script>/*${k}*/</script>`, `<script src="${f}"></script>`);
-  html = html.replace('/*PDFJSWORKER*/', read('vendor/pdf.worker.min.js').replace(/<\/script/g, '<\\/script'));
+  // função como substituto: com texto, o replace interpretaria os "$'" e "$&" que o worker tem
+  const worker = read('vendor/pdf.worker.min.mjs').replace(/<\/script/g, '<\\/script');
+  html = html.replace('/*PDFJSWORKER*/', () => worker);
   const fonts = {};
   for (const [k, n] of Object.entries({ r: 'latin-400-normal', i: 'latin-400-italic', b: 'latin-700-normal', bi: 'latin-700-italic', rx: 'latin-ext-400-normal', ix: 'latin-ext-400-italic', rg: 'greek-400-normal', ig: 'greek-400-italic' }))
     fonts[k] = fs.readFileSync(path.join(ROOT, 'vendor/fonts', n + '.woff')).toString('base64');
-  html = html.replace('/*FONTS*/{}', JSON.stringify(fonts));
+  html = html.replace('/*FONTS*/{}', () => JSON.stringify(fonts));
+  const pdfFonts = Object.fromEntries(fs.readdirSync(path.join(ROOT, 'vendor/pdfjs-fonts')).sort().map(f => [f, fs.readFileSync(path.join(ROOT, 'vendor/pdfjs-fonts', f)).toString('base64')]));
+  html = html.replace('/*PDFJSFONTS*/{}', () => JSON.stringify(pdfFonts));
   if (/\/\*[A-Z]+\*\//.test(html.replace(/\/\*PDFJSWORKER\*\/|<script id="pdfWorker"[\s\S]*?<\/script>/, ''))) throw new Error('marcador sem substituto em cobertura.html');
   fs.writeFileSync(path.join(ROOT, 'cobertura.html'), html + '\n<script src="cobertura-app.js"></script>\n' + lines.slice(end + 1).join('\n'));
 };

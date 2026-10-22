@@ -8,9 +8,11 @@ O app é **um arquivo só**, o `index.html`, que roda 100% no navegador, offline
 
 | Marcador no template | Vira |
 |---|---|
-| `/*PDFLIB*/`, `/*FONTKIT*/`, `/*JSZIP*/`, `/*PDFJS*/`, `/*PDFJSWORKER*/`, `/*TESSERACT*/` | as bibliotecas de `vendor/` |
+| `/*PDFLIB*/`, `/*FONTKIT*/`, `/*JSZIP*/`, `/*TESSERACT*/` | as bibliotecas de `vendor/` |
+| `/*PDFJS*/`, `/*PDFJSWORKER*/` | o pdf.js 4 (`vendor/pdf.min.mjs`, `vendor/pdf.worker.min.mjs`). Ele só existe como módulo ES, então o build (`esm_global`) troca o `export` final por `globalThis.pdfjsLib = {…}` e embrulha o resto numa função, para rodar como script comum. O worker continua módulo: o pdf.js o abre com `new Worker(…, { type: "module" })` a partir de um blob |
 | `/*AZW3*/`, `/*KFX*/`, `/*MANGA*/`, `/*KINDLE*/`, `/*META*/`, `/*OCR*/`, `/*SPELL*/` | os módulos de `src/*.js`, cada um num `<script>` próprio |
 | `/*FONTS*/{}` | as fontes de `vendor/fonts/` em base64 (IBM Plex Serif e Noto Serif para o grego) |
+| `/*PDFJSFONTS*/{}` | as fontes-padrão do PDF de `vendor/pdfjs-fonts/` em base64 (Foxit e Liberation Sans), que o pdf.js usa quando o PDF cita Times, Helvetica ou Courier sem embuti-las. O `initPdfjs` liga `useSystemFonts: false` em todo `getDocument`, para o resultado não depender das fontes do aparelho |
 | `/*@app/x.js*/` | as partes do script principal, de `src/app/x.js` (ver abaixo) |
 
 `python3 build.py --check` falha se o `index.html` do repositório não for exatamente o que o build geraria. O CI roda essa checagem, então **todo commit que mexe em `src/` leva o `index.html` regenerado junto**.

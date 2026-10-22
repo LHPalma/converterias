@@ -120,7 +120,7 @@ test('página sem quadros (ilustração inteira) fica sem Panel View', async ({ 
 test('PDF de texto corrido no Mangá: aviso de que a aba Para Kindle é melhor', async ({ page }) => {
   const text = await A.makeTextPdf({ chapters: 6, paras: [A.LOREM.join(' ').repeat(2)] });
   await manga(page, text);
-  await expect(page.locator('#list .s.ok')).toHaveText(/parece texto corrido, não quadrinho/);
+  await expect(page.locator('#list .s.ok')).toHaveText(/^✓ 6 páginas · parece texto corrido, não quadrinho/);   // página em pé não se parte em duas
 });
 
 test('erros: arquivo que não é PDF e PDF ilegível', async ({ page }) => {

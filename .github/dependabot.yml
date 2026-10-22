@@ -1,0 +1,20 @@
+# Atualizações automáticas (PRs semanais, que passam pelo mesmo CI).
+# As bibliotecas que o app usa ficam copiadas em vendor/ e o Dependabot não as vê: essas se atualizam à mão
+# (versões e licenças em THIRD_PARTY.md). Aqui entram as ferramentas de teste (npm) e as GitHub Actions do CI.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      testes:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
