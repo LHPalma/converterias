@@ -41,12 +41,14 @@ Também dá para usar o arquivo `index.html` sozinho (ele é autossuficiente): b
   - artigos, preposições e conjunções em minúsculo (pt e en); subtítulo separado por ` - `;
   - autores separados por vírgula (aceita `;`, `/`, `&`, `+` e "Sobrenome, Nome").
 - Metadados do PDF (título e autor) preenchidos.
+- **Marcadores (sumário clicável):** saem do sumário do próprio livro (`nav` do EPUB 3 ou `toc.ncx` do EPUB 2), com os mesmos níveis, cada um apontando para a página onde o capítulo ou a seção começa; livro sem sumário ganha marcadores pelos títulos (`h1`/`h2`). O PDF já abre com o painel de marcadores.
+- **Números de página** no rodapé, centralizados (a capa não conta); dá para desligar.
 
 ### Limitações
 
 - Não há suporte a EPUB com DRM, nem a layout fixo (quadrinhos, livros infantis) ou fórmulas complexas.
 - O CSS do próprio livro é ignorado de propósito, para manter o estilo uniforme.
-- Sem hifenização, sem sumário clicável, sem letra capitular e sem numeração de páginas.
+- Sem hifenização e sem letra capitular. Os links dentro do texto (notas, referências) não são clicáveis.
 - Livros muito grandes consomem memória do aparelho (a conversão é feita um livro por vez).
 
 ## PDF → EPUB

@@ -11,7 +11,7 @@ test('diagrama o livro, preenche metadados e nomeia em Title Case', async ({ pag
   const [out] = await run(page, 'e2p', [await epub({ title: 'o nome do vento', authors: ['Patrick Rothfuss'] })]);
   expect(out.name).toBe('O Nome do Vento (Patrick Rothfuss).pdf');
   const pdf = await readPdf(out.buf);
-  expect(pdf.title).toBe('o nome do vento');   // metadado: o título como está no EPUB
+  expect(pdf.title).toBe('O Nome do Vento');   // metadado no mesmo padrão do nome do arquivo
   expect(pdf.author).toBe('Patrick Rothfuss');
   expect(pdf.producer).toBe('epub2pdf (local)');
   expect(pdf.pages).toBe(4);                   // capa + 3 capítulos, cada um começando numa página
@@ -170,4 +170,47 @@ test('margens e posição do texto seguem as opções (em mm)', async ({ page })
   }, out.buf.toString('base64'));
   expect(left).toBeGreaterThanOrEqual(40 * MM - 0.5);
   expect(left).toBeLessThan(40 * MM + 60);   // o título é centralizado; o texto começa na margem
+});
+
+test('marcadores do PDF a partir do sumário do livro (nav), cada um na página do capítulo; números de página no rodapé', async ({ page }) => {
+  const longo = '<h1>Capítulo Longo</h1>' + '<p>Texto corrido para encher mais de uma página do PDF, com frases que se repetem.</p>'.repeat(60);
+  const [out] = await run(page, 'e2p', [await epub({ chapters: [A.RICH_CHAPTER, longo, '<h1>Três</h1><p>fim</p>'] })]);
+  const pdf = await readPdf(out.buf);
+  expect(pdf.outline.map(o => o.title)).toEqual(['Capítulo 1', 'Capítulo 2', 'Capítulo 3']);
+  expect(pdf.outline[0].items.map(o => o.title)).toEqual(['Seção 1.1']);
+  const [c1, c2, c3] = pdf.outline.map(o => o.page);
+  expect(c1).toBe(1);                                                // depois da capa
+  expect(c2).toBeGreaterThan(c1);
+  expect(c3).toBeGreaterThan(c2 + 1);                                // o capítulo 2 ocupa mais de uma página
+  expect(c3).toBe(pdf.pages - 1);
+  expect(pdf.outline[0].items[0].page).toBeGreaterThanOrEqual(c1);
+  const text = await pdfText(page, out.buf);
+  expect(text[0]).not.toMatch(/\d\s*$/);                             // a capa não tem número
+  expect(text[1]).toMatch(/\s1$/);
+  expect(text[c3]).toMatch(new RegExp(`\\s${c3}$`));
+});
+
+test('marcadores pelo toc.ncx (EPUB 2) e, sem sumário nenhum, pelos títulos; números de página desligáveis', async ({ page }) => {
+  const [a] = await run(page, 'e2p', [await epub({ version: 2, nav: false, ncx: true, chapters: 2, cover: false })]);
+  const pa = await readPdf(a.buf);
+  expect(pa.outline.map(o => [o.title, o.page])).toEqual([['Capítulo 1', 0], ['Capítulo 2', 1]]);
+  const [b] = await run(page, 'e2p', [await epub({ nav: false, cover: false, chapters: ['<h1>Primeiro</h1><h2>Parte A</h2><p>texto</p>', '<h1>Segundo</h1><p>texto</p>'] })],
+    { setup: p => p.uncheck('#pnum') });
+  const pb = await readPdf(b.buf);
+  expect(pb.outline.map(o => [o.title, o.page, o.items.map(i => i.title)])).toEqual([['Primeiro', 0, ['Parte A']], ['Segundo', 1, []]]);
+  const text = await pdfText(page, b.buf);
+  expect(text[0]).not.toMatch(/\s1$/);
+});
+
+test('marcadores para âncoras dentro do mesmo arquivo (EPUB gerado pelo PDF → EPUB, capítulos num arquivo só)', async ({ page }) => {
+  const [ep] = await run(page, 'p2e', [A.file('livro.pdf', await A.makeTextPdf({ chapters: 3, paras: [A.LOREM.join(' ').repeat(4), A.LOREM.join(' ').repeat(4)] }))]);
+  const [out] = await run(page, 'e2p', [A.file(ep.name, ep.buf, 'application/epub+zip')]);
+  const pdf = await readPdf(out.buf);
+  expect(pdf.outline.map(o => o.title)).toEqual(['Capítulo 1', 'Capítulo 2', 'Capítulo 3']);
+  const pg = pdf.outline.map(o => o.page);
+  expect(pg[1]).toBeGreaterThan(pg[0]);
+  expect(pg[2]).toBeGreaterThan(pg[1]);
+  const text = await pdfText(page, out.buf);
+  for (const [k, p] of pg.entries()) expect(text[p]).toContain(`Capítulo ${k + 1}`);
+  expect(pdf.title).toBe('Livro de Teste');
 });

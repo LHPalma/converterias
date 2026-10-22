@@ -204,7 +204,10 @@ test('PDF: página inteira reduzida à tela do aparelho, sumário do PDF e troca
   await expect(page.locator('#simCount')).toHaveText(`2 / ${total}`);
   await page.locator('.kturn').nth(0).click();
   await expect(page.locator('#simCount')).toHaveText(`1 / ${total}`);
-  await expect(page.locator('#simToc')).toBeHidden();                 // o EPUB → PDF não grava marcadores
+  // os marcadores que o EPUB → PDF grava a partir do sumário do livro
+  await expect(page.locator('#simToc option')).toHaveText([/Capítulo 1/, /Seção 1\.1/, /Capítulo 2/, /Capítulo 3/]);
+  await page.selectOption('#simToc', { label: 'Capítulo 3' });
+  await expect(page.locator('#simCount')).toHaveText(`${total} / ${total}`);
   await page.selectOption('#simDev', 'k57');
   expect(await page.locator('#simScreen').evaluate(e => getComputedStyle(e).aspectRatio)).toBe('600 / 800');
   await expect(img).toHaveJSProperty('complete', true);
