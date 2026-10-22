@@ -127,10 +127,17 @@ Mostra e edita os metadados de um EPUB ou PDF e busca os que faltam no **Open Li
 1. Toque em **Metadados** (ou abra com `#metadados`) e escolha um `.epub` ou `.pdf`. Aparecem os dados que o arquivo já tem.
    - No EPUB: título, autores, editora, data, ISBN, idioma, série e número, assuntos, descrição e capa.
    - No PDF: título, autores, descrição e assuntos, que é o que o PDF guarda.
-2. **Buscar no Open Library**: a busca vai pelo **ISBN**, se houver um válido; senão, pelo **título e o 1º autor**, limpos como no Calibre (sem subtítulo, parênteses e palavras como "the"). Os resultados vêm ordenados como no Calibre: primeiro o ISBN igual, depois o que tem capa, o título exato e o mesmo idioma.
-3. **Usar este** preenche os campos com o que o Open Library tem, incluindo a descrição da obra e a capa grande. O que ele não tem fica como estava, e um idioma `pt-BR` não vira `pt`. Ajuste o que quiser; **Desfazer** volta ao que estava antes.
-4. **Salvar com estes metadados** grava um arquivo novo, com o nome no padrão do app.
-   - **No EPUB:** o `content.opf` recebe o ISBN como `urn:isbn:` (o identificador único do livro não muda) e a série como `calibre:series` e `belongs-to-collection` do EPUB 3. A capa nova entra no lugar da imagem da antiga, então a página de capa do livro também muda; num livro sem capa, ela é criada.
+2. **Edite à mão**, no estilo do "Editar metadados" do Calibre:
+   - todos os campos são editáveis, e o que mudou fica destacado (com a contagem de alterações ainda não salvas);
+   - atalhos: **Title Case** no título, **Trocar título e autor** (quando vieram invertidos) e **Do nome do arquivo** (`Título - Subtítulo (Autor, Autor).epub`);
+   - idioma com sugestões e **avaliação** de 1 a 5 estrelas (gravada como a do Calibre);
+   - **capa**: trocar por uma imagem do aparelho, **gerar uma capa** simples com o título e o autor, remover, ou voltar à original;
+   - a data é conferida (AAAA, AAAA-MM ou AAAA-MM-DD), e o ISBN também;
+   - **Desfazer** volta passo a passo; **Restaurar tudo** volta aos metadados do arquivo.
+3. **Buscar no Open Library** (seção recolhida, abaixo do editor): a busca vai pelo **ISBN**, se houver um válido; senão, pelo **título e o 1º autor**, limpos como no Calibre (sem subtítulo, parênteses e palavras como "the"). Os resultados vêm ordenados como no Calibre: primeiro o ISBN igual, depois o que tem capa, o título exato e o mesmo idioma.
+4. **Usar este** preenche os campos com o que o Open Library tem, incluindo a descrição da obra e a capa grande. O que ele não tem fica como estava, e um idioma `pt-BR` não vira `pt`. Ajuste o que quiser; **Desfazer** volta ao que estava antes.
+5. **Salvar com estes metadados** grava um arquivo novo, com o nome no padrão do app.
+   - **No EPUB:** o `content.opf` recebe o ISBN como `urn:isbn:` (o identificador único do livro não muda) e a série como `calibre:series` e `belongs-to-collection` do EPUB 3. A capa nova entra no lugar da imagem da antiga, então a página de capa do livro também muda; num livro sem capa, ela é criada. Remover a capa tira só a marcação de capa; a imagem continua no livro, porque alguma página pode usá-la.
    - **No PDF:** grava título, autor, assunto e palavras-chave.
 
 A busca manda para o Open Library só o título, o autor ou o ISBN; o arquivo não sai do aparelho. Precisa de internet. Os dados e as capas do Open Library são de licença aberta.

@@ -64,6 +64,12 @@
   #optMeta .duo { display:grid; grid-template-columns:1fr 1fr; gap:8px; } #optMeta .duo > div { min-width:0; }
   #mtCoverBox { display:flex; gap:12px; align-items:flex-start; margin-top:10px; } #mtCoverBox img { width:96px; max-height:150px; object-fit:contain; border:1px solid var(--border); background:#fff; }
   #mtCoverBox .orginfo { flex:1; } #mtCoverBox[hidden] { display:none; }
+  #optMeta .mth { margin:4px 0 2px; font-size:1rem; } #optMeta .mtquick { margin-top:8px; }
+  #optMeta .mud { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  #optMeta select { width:100%; padding:8px; font-size:.95rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); }
+  #optMeta label.btnlike { display:inline-block; margin:0; width:auto; padding:8px 12px; font-size:.85rem; border:2px solid var(--accent); border-radius:10px; color:var(--accent); cursor:pointer; font-weight:600; }
+  #optMeta label.btnlike.off { opacity:.5; pointer-events:none; }
+  #mtOl { margin-top:14px; border:1px solid var(--border); border-radius:10px; padding:10px; } #mtOl summary { cursor:pointer; font-weight:600; } #mtOl > .orginfo { margin:8px 0; }
   #mtRes { list-style:none; margin:10px 0 0; padding:0; } #mtRes li { display:flex; gap:10px; align-items:center; padding:8px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px; }
   #mtRes li img, #mtRes li .sem { width:46px; height:68px; object-fit:cover; flex:none; background:var(--border); border-radius:4px; }
   #mtRes li .d { flex:1; min-width:0; font-size:.85rem; } #mtRes li .d b { display:block; font-size:.92rem; } #mtRes li .d span { color:var(--muted); }
@@ -278,22 +284,45 @@
 
   <div class="card" id="optMeta" hidden>
     <div id="mtInfo" class="orginfo">Escolha um EPUB ou PDF para ver e editar os metadados.</div>
-    <label for="mtTitle">Título</label><input id="mtTitle" type="text">
-    <label for="mtAuthors">Autores (separados por ;)</label><input id="mtAuthors" type="text">
+    <h3 class="mth">Editar à mão</h3>
+    <label for="mtTitle">Título</label><input id="mtTitle" type="text" placeholder="Título - Subtítulo">
+    <label for="mtAuthors">Autores (separados por ;)</label><input id="mtAuthors" type="text" placeholder="Nome Sobrenome; Outro Autor">
+    <div class="orgrow mtquick">
+      <button type="button" class="alt sm" id="mtTc" title="Título em Title Case, no padrão do nome do arquivo">Aa Title Case</button>
+      <button type="button" class="alt sm" id="mtSwap" title="Trocar título e autor (quando vieram invertidos)">⇄ Trocar título e autor</button>
+      <button type="button" class="alt sm" id="mtFromName" title="Título e autor a partir do nome do arquivo: Título - Subtítulo (Autor).epub">Do nome do arquivo</button>
+    </div>
     <div class="mt-epub">
-      <div class="duo"><div><label for="mtPublisher">Editora</label><input id="mtPublisher" type="text"></div><div><label for="mtDate">Data</label><input id="mtDate" type="text" inputmode="numeric"></div></div>
-      <div class="duo"><div><label for="mtIsbn">ISBN</label><input id="mtIsbn" type="text" inputmode="numeric"></div><div><label for="mtLang">Idioma</label><input id="mtLang" type="text"></div></div>
+      <div class="duo"><div><label for="mtPublisher">Editora</label><input id="mtPublisher" type="text"></div><div><label for="mtDate">Data</label><input id="mtDate" type="text" inputmode="numeric" placeholder="AAAA ou AAAA-MM-DD"></div></div>
+      <div class="duo"><div><label for="mtIsbn">ISBN</label><input id="mtIsbn" type="text" inputmode="numeric" placeholder="978…"></div><div><label for="mtLang">Idioma</label><input id="mtLang" type="text" list="mtLangs" placeholder="pt-BR"></div></div>
+      <datalist id="mtLangs"><option value="pt-BR">Português (Brasil)</option><option value="pt-PT">Português (Portugal)</option><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="fr">Francês</option><option value="de">Alemão</option><option value="it">Italiano</option><option value="ja">Japonês</option><option value="zh">Chinês</option><option value="ru">Russo</option><option value="la">Latim</option></datalist>
       <div class="duo"><div><label for="mtSeries">Série</label><input id="mtSeries" type="text"></div><div><label for="mtSeriesIdx">Número na série</label><input id="mtSeriesIdx" type="text" inputmode="decimal"></div></div>
+      <label for="mtRating">Avaliação</label>
+      <select id="mtRating"><option value="0">Sem avaliação</option><option value="1">★</option><option value="2">★★</option><option value="3">★★★</option><option value="4">★★★★</option><option value="5">★★★★★</option></select>
     </div>
     <label for="mtTags">Assuntos (separados por ,)</label><input id="mtTags" type="text">
     <label for="mtDesc">Descrição</label><textarea id="mtDesc"></textarea>
-    <div id="mtCoverBox" class="mt-epub"><img id="mtCover" alt="Capa" hidden><div class="orginfo" id="mtCoverInfo">Sem capa.</div></div>
-    <div class="orgrow" style="margin-top:12px">
-      <button type="button" class="sm" id="mtSearch">Buscar no Open Library</button>
-      <button type="button" class="alt sm" id="mtUndo">Desfazer</button>
+    <div class="mt-epub">
+      <label>Capa</label>
+      <div id="mtCoverBox"><img id="mtCover" alt="Capa" hidden><div class="orginfo" id="mtCoverInfo">Sem capa.</div></div>
+      <div class="orgrow">
+        <label class="alt sm btnlike" for="mtCoverFile">Trocar por uma imagem…</label><input id="mtCoverFile" type="file" accept="image/*" hidden>
+        <button type="button" class="alt sm" id="mtCoverGen" title="Capa simples com o título e o autor">Gerar capa</button>
+        <button type="button" class="alt sm" id="mtCoverDel">Remover capa</button>
+        <button type="button" class="alt sm" id="mtCoverOrig">Capa original</button>
+      </div>
     </div>
-    <ul id="mtRes"></ul>
-    <div class="orgrow"><button type="button" id="mtSave">Salvar com estes metadados</button></div>
+    <div class="orgrow" style="margin-top:12px">
+      <button type="button" class="alt sm" id="mtUndo">Desfazer</button>
+      <button type="button" class="alt sm" id="mtRevert" title="Volta aos metadados do arquivo">Restaurar tudo</button>
+      <span class="inl" id="mtDirty"></span>
+    </div>
+    <details id="mtOl"><summary>Buscar no Open Library</summary>
+      <div class="orginfo">Busca pelo ISBN ou pelo título e 1º autor dos campos acima; tocar num resultado preenche os campos (dá para desfazer).</div>
+      <button type="button" class="sm" id="mtSearch">Buscar no Open Library</button>
+      <ul id="mtRes"></ul>
+    </details>
+    <div class="orgrow" style="margin-top:12px"><button type="button" id="mtSave">Salvar com estes metadados</button></div>
     <div id="mtOut"></div>
   </div>
 
@@ -3267,42 +3296,113 @@ ${spine.join('\n')}
     else { const v = Math.round(+e.target.value); if (v >= 1 && v <= idx.n) { if (v - 1 !== it.page) idxDo(() => { it.page = v - 1; }); idxShow(v - 1); } else e.target.value = it.page + 1; }
   });
 
-  // ---------- Metadados: ver, editar, buscar no Open Library (src/meta.js) e salvar ----------
-  const MT = { title: 'mtTitle', authors: 'mtAuthors', publisher: 'mtPublisher', date: 'mtDate', isbn: 'mtIsbn', lang: 'mtLang', series: 'mtSeries', seriesIndex: 'mtSeriesIdx', tags: 'mtTags', description: 'mtDesc' };
+  // ---------- Metadados: editor manual + busca no Open Library (src/meta.js) e salvar ----------
+  const MT = { title: 'mtTitle', authors: 'mtAuthors', publisher: 'mtPublisher', date: 'mtDate', isbn: 'mtIsbn', lang: 'mtLang', series: 'mtSeries', seriesIndex: 'mtSeriesIdx', rating: 'mtRating', tags: 'mtTags', description: 'mtDesc' };
   const mtGet = () => {
     const v = Object.fromEntries(Object.entries(MT).map(([k, id]) => [k, $(id).value.trim()]));
-    v.authors = v.authors.split(/\s*;\s*/).filter(Boolean); v.tags = v.tags.split(/\s*,\s*/).filter(Boolean);
+    v.authors = v.authors.split(/\s*;\s*/).filter(Boolean); v.tags = v.tags.split(/\s*,\s*/).filter(Boolean); v.rating = +v.rating || 0;
     return v;
   };
-  const mtPut = v => { for (const [k, id] of Object.entries(MT)) $(id).value = Array.isArray(v[k]) ? v[k].join(k === 'tags' ? ', ' : '; ') : v[k] || ''; };
+  const mtPut = v => { for (const [k, id] of Object.entries(MT)) $(id).value = Array.isArray(v[k]) ? v[k].join(k === 'tags' ? ', ' : '; ') : v[k] == null ? (k === 'rating' ? '0' : '') : v[k]; mtMarks(); };
+  const mtSnap = () => ({ v: mtGet(), newCover: mt.newCover, removeCover: mt.removeCover });
+  const mtPush = () => { mt.hist.push(mtSnap()); if (mt.hist.length > 80) mt.hist.shift(); };
+  function mtMarks() {   // o que mudou em relação ao arquivo fica destacado
+    if (!mt) return;
+    const now = mtGet(), orig = mt.book.meta, same = (a, b) => (Array.isArray(a) ? a.join('|') : String(a ?? '')) === (Array.isArray(b) ? b.join('|') : String(b ?? ''));
+    let n = 0;
+    for (const [k, id] of Object.entries(MT)) { const d = !same(now[k], k === 'rating' ? orig.rating || 0 : orig[k]); $(id).classList.toggle('mud', d); n += d; }
+    const capa = mt.newCover || mt.removeCover; n += !!capa;
+    $('mtDirty').textContent = n ? `${n} ${n === 1 ? 'alteração' : 'alterações'} ainda não salva${n === 1 ? '' : 's'}` : '';
+    $('mtIsbn').setCustomValidity(now.isbn && !Meta.isbn13(now.isbn) ? 'ISBN inválido' : '');
+  }
   function mtCoverShow() {
-    const c = mt && (mt.newCover || mt.book.meta.cover), img = $('mtCover');
+    const c = mt && !mt.removeCover && (mt.newCover || mt.book.meta.cover), img = $('mtCover');
     if (mt && mt.coverUrl) { URL.revokeObjectURL(mt.coverUrl); mt.coverUrl = null; }
-    if (!c) { img.hidden = true; $('mtCoverInfo').textContent = 'Sem capa.'; return; }
-    mt.coverUrl = URL.createObjectURL(new Blob([c.bytes], { type: c.type })); img.src = mt.coverUrl; img.hidden = false;
-    $('mtCoverInfo').textContent = mt.newCover ? `Capa nova do Open Library${c.w ? ` (${c.w}×${c.h})` : ''}: entra no lugar da antiga ao salvar.` : 'Capa atual do livro.';
+    if (!c) { img.hidden = true; $('mtCoverInfo').textContent = mt && mt.removeCover ? 'Sem capa (a atual sai ao salvar).' : 'Sem capa.'; }
+    else {
+      mt.coverUrl = URL.createObjectURL(new Blob([c.bytes], { type: c.type })); img.src = mt.coverUrl; img.hidden = false;
+      $('mtCoverInfo').textContent = mt.newCover ? `${mt.newCover.from || 'Capa nova'}${c.w ? ` (${c.w}×${c.h})` : ''}: entra no lugar da antiga ao salvar.` : 'Capa atual do livro.';
+    }
+    if (mt) { $('mtCoverDel').disabled = busy || !c; $('mtCoverOrig').disabled = busy || !(mt.newCover || mt.removeCover) || !mt.book.meta.cover; }
+    mtMarks();
   }
   function mtReset() {
     if (mt) { if (mt.abort) mt.abort.abort(); if (mt.coverUrl) URL.revokeObjectURL(mt.coverUrl); }
-    mt = null; $('optMeta').querySelectorAll('input, textarea').forEach(e => { e.value = ''; }); $('mtRes').innerHTML = '';   // roda antes das constantes acima existirem (setMode inicial) $('mtCover').hidden = true; $('mtCoverInfo').textContent = 'Sem capa.';
+    mt = null; $('optMeta').querySelectorAll('input, textarea').forEach(e => { e.value = ''; e.classList.remove('mud'); }); $('mtRating').value = '0'; $('mtRes').innerHTML = '';   // roda antes das constantes acima existirem (setMode inicial)
+    $('mtCover').hidden = true; $('mtCoverInfo').textContent = 'Sem capa.'; $('mtDirty').textContent = '';
     $('mtInfo').textContent = 'Escolha um EPUB ou PDF para ver e editar os metadados.';
-    $('optMeta').querySelectorAll('input, textarea, button').forEach(e => e.disabled = true);
+    $('optMeta').querySelectorAll('input, textarea, button, select').forEach(e => e.disabled = true);
+    $('optMeta').querySelector('label.btnlike').classList.add('off');
   }
   function mtState() {
     if (!mt) return;
-    $('optMeta').querySelectorAll('input, textarea, button').forEach(e => e.disabled = busy);
+    $('optMeta').querySelectorAll('input, textarea, button, select').forEach(e => e.disabled = busy);
+    $('optMeta').querySelector('label.btnlike').classList.toggle('off', busy);
     $('mtUndo').disabled = busy || !mt.hist.length;
     $('optMeta').querySelectorAll('.mt-epub').forEach(e => e.hidden = mt.book.kind !== 'epub');
+    mtCoverShow();
   }
   async function mtLoad(file) {
     mtReset();
     try {
       const b = await Meta.open(new Uint8Array(await file.arrayBuffer()), file.name);
-      mt = { file, book: b, hist: [], newCover: null, cands: [] };
-      mtPut(b.meta); mtCoverShow(); mtState();
+      mt = { file, book: b, hist: [], newCover: null, removeCover: false, cands: [] };
+      mtPut(b.meta); mtState();
       $('mtInfo').textContent = `${file.name} · ${b.kind.toUpperCase()}`;
     } catch (e) { say(e.message || String(e), true); }
   }
+  // edição à mão: cada campo alterado entra no Desfazer
+  $('optMeta').addEventListener('focusin', e => { if (mt && e.target.id in Object.fromEntries(Object.values(MT).map(i => [i, 1]))) mt.focusSnap = mtSnap(); });
+  $('optMeta').addEventListener('change', e => {
+    if (!mt || !Object.values(MT).includes(e.target.id)) return;
+    if (mt.focusSnap && JSON.stringify(mt.focusSnap.v) !== JSON.stringify(mtGet())) { mt.hist.push(mt.focusSnap); mt.focusSnap = mtSnap(); }
+    mtMarks(); mtState();
+  });
+  $('optMeta').addEventListener('input', e => { if (mt && Object.values(MT).includes(e.target.id)) mtMarks(); });
+  const mtEdit = fn => { if (!mt || busy) return; mtPush(); fn(); mtState(); say(''); };
+  $('mtTc').addEventListener('click', () => mtEdit(() => { $('mtTitle').value = pdfTitle($('mtTitle').value); mtMarks(); }));
+  $('mtSwap').addEventListener('click', () => mtEdit(() => { const t = $('mtTitle').value, a = $('mtAuthors').value; $('mtTitle').value = a; $('mtAuthors').value = t; mtMarks(); }));
+  $('mtFromName').addEventListener('click', () => mtEdit(() => {   // "Título - Subtítulo (Autor, Autor).epub"
+    const n = stem(mt.file), m = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(n);
+    $('mtTitle').value = (m ? m[1] : n).replace(/[_]+/g, ' ').trim();
+    if (m) $('mtAuthors').value = m[2].split(/\s*,\s*/).filter(Boolean).join('; ');
+    mtMarks();
+  }));
+  $('mtCoverFile').addEventListener('change', async () => {
+    const f = $('mtCoverFile').files[0]; $('mtCoverFile').value = '';
+    if (!f || !mt) return;
+    try {
+      const bm = await createImageBitmap(f), w = bm.width, h = bm.height; bm.close();
+      if (w < 50 || h < 50) throw new Error('imagem pequena demais para capa.');
+      const type = /^image\/(jpeg|png)$/.test(f.type) ? f.type : 'image/jpeg';
+      let bytes = new Uint8Array(await f.arrayBuffer());
+      if (type !== f.type) { const b2 = await createImageBitmap(f), cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').drawImage(b2, 0, 0); b2.close(); bytes = new Uint8Array(await (await toBlob(cv, 'image/jpeg', 0.92)).arrayBuffer()); }
+      mtEdit(() => { mt.newCover = { bytes, type, w, h, from: `Capa de ${f.name}` }; mt.removeCover = false; });
+    } catch (e) { say('Erro: ' + (e.message || 'não consegui abrir essa imagem.'), true); }
+  });
+  $('mtCoverGen').addEventListener('click', async () => {   // capa simples: título e autor sobre uma cor tirada do título
+    if (!mt) return;
+    const v = mtGet(), W = 1200, H = 1800, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const cx = cv.getContext('2d'), hue = [...(v.title || 'Livro')].reduce((a, c) => (a * 31 + c.codePointAt(0)) % 360, 7);
+    const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, `hsl(${hue} 35% 30%)`); g.addColorStop(1, `hsl(${hue} 40% 14%)`);
+    cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+    cx.strokeStyle = 'rgba(255,255,255,.55)'; cx.lineWidth = 6; cx.strokeRect(70, 70, W - 140, H - 140);
+    cx.fillStyle = '#fff'; cx.textAlign = 'center'; cx.textBaseline = 'alphabetic';
+    const wrap = (text, font, maxW) => { cx.font = font; const out = []; let line = ''; for (const w of text.split(/\s+/).filter(Boolean)) { const t = line ? line + ' ' + w : w; if (cx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t; } if (line) out.push(line); return out; };
+    const [main, ...subs] = (v.title || 'Livro').split(/\s+-\s+/);
+    let size = 120, lines; do { lines = wrap(main, `700 ${size}px Georgia, 'Times New Roman', serif`, W - 260); size -= 8; } while (lines.length > 5 && size > 50);
+    size += 8; let y = H * 0.36 - (lines.length - 1) * size * 0.6;
+    cx.font = `700 ${size}px Georgia, 'Times New Roman', serif`; for (const l of lines) { cx.fillText(l, W / 2, y); y += size * 1.2; }
+    if (subs.length) { const sl = wrap(subs.join(' - '), `italic 56px Georgia, serif`, W - 300); y += 20; cx.font = 'italic 56px Georgia, serif'; for (const l of sl.slice(0, 3)) { cx.fillText(l, W / 2, y); y += 70; } }
+    cx.fillRect(W / 2 - 80, H * 0.72, 160, 4);
+    const au = v.authors.join(', ') || ''; if (au) { const al = wrap(au, `400 60px Georgia, serif`, W - 260); let ay = H * 0.80; cx.font = '400 60px Georgia, serif'; for (const l of al.slice(0, 2)) { cx.fillText(l, W / 2, ay); ay += 76; } }
+    const bytes = new Uint8Array(await (await toBlob(cv, 'image/jpeg', 0.9)).arrayBuffer());
+    mtEdit(() => { mt.newCover = { bytes, type: 'image/jpeg', w: W, h: H, from: 'Capa gerada' }; mt.removeCover = false; });
+  });
+  $('mtCoverDel').addEventListener('click', () => mtEdit(() => { mt.newCover = null; mt.removeCover = true; }));
+  $('mtCoverOrig').addEventListener('click', () => mtEdit(() => { mt.newCover = null; mt.removeCover = false; }));
+  $('mtRevert').addEventListener('click', () => mtEdit(() => { mtPut(mt.book.meta); mt.newCover = null; mt.removeCover = false; }));
+  $('mtUndo').addEventListener('click', () => { const h = mt && mt.hist.pop(); if (!h) return; mtPut(h.v); mt.newCover = h.newCover; mt.removeCover = h.removeCover; mtState(); say(''); });
   function mtRender() {
     const ul = $('mtRes'); ul.innerHTML = '';
     if (!mt || !mt.cands.length) return;
@@ -3334,14 +3434,13 @@ ${spine.join('\n')}
     try {
       const [full, cov] = await Promise.all([Meta.details(c, { signal: o.abort.signal }), Meta.cover(c.cover, { signal: o.abort.signal })]);
       if (mt !== o) return;
-      o.hist.push({ v: mtGet(), newCover: o.newCover });
+      mtPush();
       // como no Calibre: o que a fonte traz entra; o que ela não traz fica como estava
       const v = mtGet(), title = full.title + (full.subtitle ? ' - ' + full.subtitle : '');
       mtPut({ ...v, title: title || v.title, authors: full.authors.length ? full.authors : v.authors, publisher: full.publisher || v.publisher, date: full.date || v.date,
         isbn: full.isbn || v.isbn, lang: v.lang && full.lang && v.lang.toLowerCase().startsWith(full.lang) ? v.lang : full.lang || v.lang,   // "pt-BR" não vira "pt"
         tags: full.tags.length ? full.tags : v.tags, description: full.description || v.description });
-      if (cov && o.book.kind === 'epub') o.newCover = cov;
-      mtCoverShow();
+      if (cov && o.book.kind === 'epub') { o.newCover = { ...cov, from: 'Capa nova do Open Library' }; o.removeCover = false; }
       say(`Preenchido com o Open Library${cov ? ', com capa' : ', sem capa'}. Confira e salve.`);
     } catch (e) { if (mt === o) say('Erro: ' + (e.message || e), true); }
     finally { busy = false; if (mt === o) mtState(); }
@@ -3353,21 +3452,21 @@ ${spine.join('\n')}
       say('Gravando…'); await tick();
       const v = mtGet();
       if (v.isbn && !Meta.isbn13(v.isbn)) throw new Error(`o ISBN "${v.isbn}" não é válido (confira os dígitos).`);
-      const data = await Meta.save(o.book, { ...v, newCover: o.newCover });
+      if (v.date && !/^\d{4}(-\d{2}(-\d{2})?)?([T ][\d:.+Z-]*)?$/.test(v.date)) throw new Error(`a data "${v.date}" não está no formato AAAA, AAAA-MM ou AAAA-MM-DD.`);
+      const data = await Meta.save(o.book, { ...v, newCover: o.newCover, removeCover: o.removeCover });
       const ext = o.book.kind, mime = ext === 'pdf' ? 'application/pdf' : 'application/epub+zip';
       const name = makeName(v.title || stem(o.file), v.authors) + '.' + ext;
       results.forEach(r => URL.revokeObjectURL(r.url)); results = [];
       results.push({ name, url: URL.createObjectURL(new Blob([data], { type: mime })), bytes: data, mime });
       await showOut({ ext, mime, many: ext === 'pdf' ? 'PDFs' : 'EPUBs' });
       say(`Pronto: ${name}. Toque em baixar.`);
-      o.book = await Meta.open(data, name); o.newCover = null; mtCoverShow();   // o salvo vira a base de novas edições
+      o.book = await Meta.open(data, name); o.newCover = null; o.removeCover = false; o.hist = []; mtPut(o.book.meta);   // o salvo vira a base de novas edições
     } catch (e) { console.error(e); say('Erro: ' + (e.message || e), true); }
     finally { busy = false; if (mt === o) mtState(); }
   }
   $('mtSearch').addEventListener('click', mtSearch);
   $('mtSave').addEventListener('click', mtSave);
   $('mtRes').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) mtUse(+b.dataset.k); });
-  $('mtUndo').addEventListener('click', () => { const h = mt && mt.hist.pop(); if (!h) return; mtPut(h.v); mt.newCover = h.newCover; mtCoverShow(); mtState(); say(''); });
 
   // aba Simular: abre o arquivo escolhido direto no simulador
   async function runSim() {
