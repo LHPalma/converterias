@@ -33,7 +33,7 @@ Leia antes [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md): como o `index.html` é 
 ## Não faça
 
 - Não adicione dependência de servidor nem de rede para converter: tudo roda no aparelho. A única exceção é a busca de metadados no Open Library, que manda só título, autor ou ISBN.
-- Ao atualizar uma biblioteca de `vendor/`, atualize a versão no `THIRD_PARTY.md` e rode a suíte inteira. O Dependabot não vê `vendor/`, só as ferramentas de teste (npm) e as GitHub Actions. O pdf.js é módulo ES e passa pelo `esm_global` do `build.py`: numa versão nova, confira também o formato do `getOperatorList()` (o `constructPath` mudou do 3 para o 4).
+- Ao atualizar uma biblioteca de `vendor/`, atualize a versão no `THIRD_PARTY.md` e rode a suíte inteira. O Dependabot não vê `vendor/`, só as ferramentas de teste (npm) e as GitHub Actions. O pdf.js é módulo ES e passa pelo `esm_global` do `build.py`: numa versão nova, confira também o formato do `getOperatorList()` (o `constructPath` mudou do 3 para o 4) e copie as fontes de `standard_fonts/` do pacote para `vendor/pdfjs-fonts/`.
 - Não use biblioteca de fora de `vendor/`, nem CDN no app. O OCR "alta qualidade" baixa dados de idioma do jsDelivr só sob demanda.
 - Não ponha arquivo binário de teste no repositório: gere em `tests/apoio/arquivos.js`.
 - Não pule nem desligue teste para o CI passar. `test.fixme` é só para bug conhecido, com um comentário dizendo qual é.

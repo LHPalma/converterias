@@ -47,6 +47,8 @@ module.exports = async () => {
   for (const [k, n] of Object.entries({ r: 'latin-400-normal', i: 'latin-400-italic', b: 'latin-700-normal', bi: 'latin-700-italic', rx: 'latin-ext-400-normal', ix: 'latin-ext-400-italic', rg: 'greek-400-normal', ig: 'greek-400-italic' }))
     fonts[k] = fs.readFileSync(path.join(ROOT, 'vendor/fonts', n + '.woff')).toString('base64');
   html = html.replace('/*FONTS*/{}', () => JSON.stringify(fonts));
+  const pdfFonts = Object.fromEntries(fs.readdirSync(path.join(ROOT, 'vendor/pdfjs-fonts')).sort().map(f => [f, fs.readFileSync(path.join(ROOT, 'vendor/pdfjs-fonts', f)).toString('base64')]));
+  html = html.replace('/*PDFJSFONTS*/{}', () => JSON.stringify(pdfFonts));
   if (/\/\*[A-Z]+\*\//.test(html.replace(/\/\*PDFJSWORKER\*\/|<script id="pdfWorker"[\s\S]*?<\/script>/, ''))) throw new Error('marcador sem substituto em cobertura.html');
   fs.writeFileSync(path.join(ROOT, 'cobertura.html'), html + '\n<script src="cobertura-app.js"></script>\n' + lines.slice(end + 1).join('\n'));
 };

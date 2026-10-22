@@ -32,6 +32,10 @@ def esm_global(src, name):
 for marker, f in (("/*PDFLIB*/", "pdf-lib.min.js"), ("/*FONTKIT*/", "fontkit.umd.min.js"), ("/*JSZIP*/", "jszip.min.js")):
     html = html.replace(marker, esc((v / f).read_text(encoding="utf-8")))
 html = html.replace("/*PDFJS*/", esc(esm_global((v / "pdf.min.mjs").read_text(encoding="utf-8"), "pdfjsLib")))
+# fontes-padrão do PDF (Times, Helvetica, Courier, Symbol, Dingbats) para quando o PDF não as embute: sem elas o pdf.js
+# usa as fontes do aparelho, e o resultado muda de um aparelho para outro (ver initPdfjs em src/app/imagens.js)
+pdf_fonts = {f.name: base64.b64encode(f.read_bytes()).decode() for f in sorted((v / "pdfjs-fonts").iterdir())}
+html = html.replace("/*PDFJSFONTS*/{}", json.dumps(pdf_fonts))
 # o worker continua módulo: o pdf.js 4 o abre com new Worker(..., { type: "module" })
 html = html.replace("/*PDFJSWORKER*/", esc((v / "pdf.worker.min.mjs").read_text(encoding="utf-8")))
 html = html.replace("/*TESSERACT*/", esc((v / "ocr" / "tesseract.min.js").read_text(encoding="utf-8")))

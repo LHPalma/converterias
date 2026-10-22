@@ -3,9 +3,21 @@
   // do marcador /*@app/imagens.js*/. Por isso usa direto o que está lá ($, say, tick, results, busy, files, mode...) e as outras
   // partes; a ordem dos marcadores no template importa (const/let só existem depois da linha em que são declarados).
   // ---------- imagens <-> PDF ----------
+  // fontes-padrão do PDF embutidas no app: um PDF que cita Times ou Helvetica sem embuti-las sai igual em qualquer
+  // aparelho (com as fontes do sistema, num celular sem Times o texto saía com outra largura e outro desenho; no
+  // Mangá, página de texto chegava a parecer quadrinho)
+  class PdfFonts { constructor() {} async fetch({ filename }) {
+    const b = PDFJS_FONTS[filename]; if (!b) throw new Error('fonte-padrão ausente: ' + filename);
+    return Uint8Array.from(atob(b), c => c.charCodeAt(0));
+  } }
   const initPdfjs = () => {
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
       pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([$('pdfWorker').textContent], { type: 'text/javascript' }));
+    if (!pdfjsLib.getDocument.comFontes) {   // todos os getDocument do app (e dos módulos) passam a usar as fontes embutidas
+      const orig = pdfjsLib.getDocument;
+      pdfjsLib.getDocument = p => orig({ isEvalSupported: false, useSystemFonts: false, useWorkerFetch: false, StandardFontDataFactory: PdfFonts, ...p });
+      pdfjsLib.getDocument.comFontes = true;
+    }
   };
   const toBlob = (cv, type, q) => new Promise(r => cv.toBlob(r, type, q));
 

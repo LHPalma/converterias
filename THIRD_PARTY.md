@@ -7,6 +7,8 @@ Embutidos no `index.html` gerado (arquivos em `vendor/`; textos de licença em `
 | [pdf-lib](https://github.com/Hopding/pdf-lib) | 1.17.1 | MIT |
 | [@pdf-lib/fontkit](https://github.com/Hopding/fontkit) | 1.1.1 | MIT |
 | [pdf.js](https://github.com/mozilla/pdf.js) (pdfjs-dist, build `legacy`, que roda também em navegadores mais antigos) | 4.10.38 | Apache 2.0 |
+| Fontes-padrão do pdf.js (`vendor/pdfjs-fonts/`): Foxit (Times, Courier, Symbol, Dingbats), do PDFium | 4.10.38 | BSD 3 cláusulas |
+| Fontes-padrão do pdf.js: [Liberation Sans](https://github.com/liberationfonts/liberation-fonts) (Helvetica) | 4.10.38 | SIL Open Font License 1.1 |
 | [JSZip](https://github.com/Stuk/jszip) | 3.10.1 | MIT ou GPLv3 (à escolha; usado sob MIT) |
 | [IBM Plex Serif](https://github.com/IBM/plex) (via [Fontsource](https://fontsource.org)) | 5.0.8 | SIL Open Font License 1.1 |
 | [Noto Serif](https://github.com/notofonts/latin-greek-cyrillic) (subconjunto grego, via Fontsource) | 5.0.8 | SIL Open Font License 1.1 |
