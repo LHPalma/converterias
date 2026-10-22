@@ -59,6 +59,15 @@
   #idxList .vazio { color:var(--muted); font-size:.85rem; padding:12px; cursor:default; }
   #idxPrev { margin-top:12px; text-align:center; } #idxCv { max-width:100%; max-height:50vh; border:1px solid var(--border); background:#fff; }
   #idxPg { font:.85rem monospace; color:var(--muted); }
+  #optMeta label { margin-top:8px; } #optMeta textarea { width:100%; min-height:110px; padding:8px; font:inherit; font-size:.9rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); box-sizing:border-box; }
+  #optMeta input[type=text] { width:100%; padding:8px; font-size:.95rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--fg); box-sizing:border-box; }
+  #optMeta .duo { display:grid; grid-template-columns:1fr 1fr; gap:8px; } #optMeta .duo > div { min-width:0; }
+  #mtCoverBox { display:flex; gap:12px; align-items:flex-start; margin-top:10px; } #mtCoverBox img { width:96px; max-height:150px; object-fit:contain; border:1px solid var(--border); background:#fff; }
+  #mtCoverBox .orginfo { flex:1; } #mtCoverBox[hidden] { display:none; }
+  #mtRes { list-style:none; margin:10px 0 0; padding:0; } #mtRes li { display:flex; gap:10px; align-items:center; padding:8px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px; }
+  #mtRes li img, #mtRes li .sem { width:46px; height:68px; object-fit:cover; flex:none; background:var(--border); border-radius:4px; }
+  #mtRes li .d { flex:1; min-width:0; font-size:.85rem; } #mtRes li .d b { display:block; font-size:.92rem; } #mtRes li .d span { color:var(--muted); }
+  #mtRes .fonte { font-size:.75rem; color:var(--muted); border:0; padding:0 4px; display:block; }
   #orgGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; margin-top:12px; }
   .oc { border:2px solid var(--border); border-radius:8px; padding:6px 4px 4px; text-align:center; background:var(--bg); cursor:pointer; user-select:none; -webkit-user-select:none; }
   .oc.sel { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 16%, var(--bg)); } .oc.drag { opacity:.4; } .oc.over { outline:2px dashed var(--accent); }
@@ -111,6 +120,7 @@
     <button type="button" data-mode="manga">Mangá</button>
     <button type="button" data-mode="ocr">Escaneado → PDF</button>
     <button type="button" data-mode="idx">Índice do PDF</button>
+    <button type="button" data-mode="meta">Metadados</button>
     <button type="button" data-mode="sim">Simular no Kindle</button>
   </div>
   <div class="card">
@@ -266,6 +276,27 @@
     <div id="idxOut"></div>
   </div>
 
+  <div class="card" id="optMeta" hidden>
+    <div id="mtInfo" class="orginfo">Escolha um EPUB ou PDF para ver e editar os metadados.</div>
+    <label for="mtTitle">Título</label><input id="mtTitle" type="text">
+    <label for="mtAuthors">Autores (separados por ;)</label><input id="mtAuthors" type="text">
+    <div class="mt-epub">
+      <div class="duo"><div><label for="mtPublisher">Editora</label><input id="mtPublisher" type="text"></div><div><label for="mtDate">Data</label><input id="mtDate" type="text" inputmode="numeric"></div></div>
+      <div class="duo"><div><label for="mtIsbn">ISBN</label><input id="mtIsbn" type="text" inputmode="numeric"></div><div><label for="mtLang">Idioma</label><input id="mtLang" type="text"></div></div>
+      <div class="duo"><div><label for="mtSeries">Série</label><input id="mtSeries" type="text"></div><div><label for="mtSeriesIdx">Número na série</label><input id="mtSeriesIdx" type="text" inputmode="decimal"></div></div>
+    </div>
+    <label for="mtTags">Assuntos (separados por ,)</label><input id="mtTags" type="text">
+    <label for="mtDesc">Descrição</label><textarea id="mtDesc"></textarea>
+    <div id="mtCoverBox" class="mt-epub"><img id="mtCover" alt="Capa" hidden><div class="orginfo" id="mtCoverInfo">Sem capa.</div></div>
+    <div class="orgrow" style="margin-top:12px">
+      <button type="button" class="sm" id="mtSearch">Buscar no Open Library</button>
+      <button type="button" class="alt sm" id="mtUndo">Desfazer</button>
+    </div>
+    <ul id="mtRes"></ul>
+    <div class="orgrow"><button type="button" id="mtSave">Salvar com estes metadados</button></div>
+    <div id="mtOut"></div>
+  </div>
+
   <button id="go" disabled>Converter</button>
   <button id="cancel" type="button" class="alt" style="display:none;margin-top:8px">Cancelar</button>
   <div id="status"></div>
@@ -317,6 +348,7 @@
 <script>/*KFX*/</script>
 <script>/*MANGA*/</script>
 <script>/*KINDLE*/</script>
+<script>/*META*/</script>
 <script>/*TESSERACT*/</script>
 <script>/*SPELL*/</script>
 <script>/*OCR*/</script>
@@ -330,6 +362,7 @@
   const orgGrid = $('orgGrid');
   let files = [], results = [], thumbs = [], zipUrl = null, items = [], busy = false;
   let idx = null;   // aba Índice do PDF (ver idxLoad)
+  let mt = null;    // aba Metadados (ver mtLoad)
   const MODES = {
     e2p: { pick: 'Toque para escolher um ou mais .epub', accept: '.epub,application/epub+zip', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Os PDFs são gerados direto no app (sem tela de impressão), com as margens e o tamanho de página escolhidos. Nome do arquivo: Título em Title Case - Subtítulo (Autor). Se o Chrome perguntar, permita vários downloads.' },
@@ -352,6 +385,8 @@
            note: 'Faz OCR do PDF escaneado no próprio aparelho e gera um PDF com a mesma diagramação do EPUB → PDF: parágrafos, capítulos (pelos cabeçalhos das páginas), ilustrações como imagem e capa. Na primeira vez baixa o motor de OCR (cerca de 6 MB), que depois fica guardado para uso offline. É lento (alguns segundos por página; no celular, bem mais) e consome memória: prefira um livro por vez. Erros de reconhecimento continuam no texto. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Toque nas páginas para selecioná-las e use a barra de baixo para mover, girar, duplicar ou remover. No computador também dá para arrastar uma página para outro lugar. Os marcadores das páginas que ficam são mantidos; Desfazer volta passo a passo.' },
+    meta: { pick: 'Toque para escolher um .epub ou .pdf', accept: '.epub,.pdf,application/epub+zip,application/pdf', ext: '', mime: '', many: '',
+            note: 'Mostra e edita os metadados do livro (título, autores, editora, data, ISBN, idioma, série, assuntos, descrição e capa) e busca os que faltam no Open Library, como o "Baixar metadados" do Calibre: pelo ISBN, ou pelo título e o 1º autor. Toque num resultado para preencher, ajuste e salve. A busca manda só o título, o autor ou o ISBN para o Open Library; o arquivo não sai do aparelho. No PDF ficam título, autores, descrição e assuntos.' },
     idx: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Monta o índice do PDF (os marcadores, o sumário clicável que o leitor mostra ao lado): gera automaticamente a partir do sumário impresso do livro ou dos títulos do texto, e você ajusta à mão — renomear, mudar a página, subir/descer, mudar o nível, remover ou criar marcadores olhando a página. O resto do PDF fica como está.' },
     sim: { pick: 'Toque para escolher um AZW3, KFX, EPUB ou PDF', accept: '.azw3,.kfx,.epub,.pdf,.mobi,.azw', ext: '', mime: '', many: '',
@@ -362,7 +397,7 @@
   const syncOcrOpts = () => { $('optOCR').hidden = !(mode === 'ocr' || ((mode === 'p2e' || mode === 'kindle') && $('pOcr').checked)); };
   const kFmt = () => (($('kFmt') || {}).value || 'azw3');
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
-  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : location.hash === '#simular' ? 'sim' : location.hash === '#indice' ? 'idx' : 'e2p';
+  let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : location.hash === '#simular' ? 'sim' : location.hash === '#indice' ? 'idx' : location.hash === '#metadados' ? 'meta' : 'e2p';
   Manga.DEVICES.forEach((d, i) => $('mDev').add(new Option(d.label, d.id, !i, !i)));
 
   let cancelled = false;
@@ -403,10 +438,11 @@
   };
   const pickFiles = list => {
     files = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    if (mode === 'org' || mode === 'sim' || mode === 'idx') files = files.slice(0, 1);
+    if (mode === 'org' || mode === 'sim' || mode === 'idx' || mode === 'meta') files = files.slice(0, 1);
     showFiles();
     if (mode === 'org' && files.length) orgLoad(files[0]);
     if (mode === 'idx' && files.length) idxLoad(files[0]);
+    if (mode === 'meta' && files.length) mtLoad(files[0]);
     if (mode === 'sim' && files.length) runSim();   // escolheu, já abre
   };
   fileEl.addEventListener('change', () => {
@@ -426,10 +462,11 @@
   const setMode = m => {
     mode = m;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-    $('optE2P').hidden = m !== 'e2p' && m !== 'ocr'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; syncOcrOpts(); $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org'; $('optIdx').hidden = m !== 'idx';
-    go.style.display = m === 'org' || m === 'idx' ? 'none' : '';   // no Organizar e no Índice, os botões de salvar ficam junto do editor
-    if (m === 'org') $('orgOut').append(statusEl, outBtns); else if (m === 'idx') $('idxOut').append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
-    listEl.hidden = m === 'org' || m === 'idx'; orgReset(); idxReset();
+    $('optE2P').hidden = m !== 'e2p' && m !== 'ocr'; $('optKindle').hidden = m !== 'kindle'; $('optManga').hidden = m !== 'manga'; $('optP2E').hidden = m !== 'p2e' && m !== 'kindle'; $('optMerge').hidden = m !== 'merge'; syncOcrOpts(); $('optI2P').hidden = m !== 'i2p'; $('optP2I').hidden = m !== 'p2i'; $('optOrg').hidden = m !== 'org'; $('optIdx').hidden = m !== 'idx'; $('optMeta').hidden = m !== 'meta';
+    const own = { org: 'orgOut', idx: 'idxOut', meta: 'mtOut' }[m];   // abas com editor: os botões de salvar ficam junto dele
+    go.style.display = own ? 'none' : '';
+    if (own) $(own).append(statusEl, outBtns); else { $('cancel').after(statusEl); listEl.after(outBtns); }
+    listEl.hidden = !!own; orgReset(); idxReset(); mtReset();
     go.textContent = m === 'merge' ? 'Juntar' : m === 'i2p' ? 'Criar PDF' : m === 'sim' ? 'Abrir no simulador' : 'Converter';
     fileEl.accept = MODES[m].accept; fileEl.value = '';
     $('note').textContent = MODES[m].note;
@@ -439,7 +476,7 @@
   $('kFmt').addEventListener('change', () => { $('note').textContent = MODES[mode].note; showFiles(); });
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     if (busy || b.dataset.mode === mode) return;
-    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado', sim: '#simular', idx: '#indice' }[b.dataset.mode] || location.pathname + location.search);
+    history.replaceState(null, '', { p2e: '#pdf-epub', merge: '#juntar', i2p: '#imagens-pdf', p2i: '#pdf-imagens', org: '#organizar', kindle: '#kindle', manga: '#manga', ocr: '#escaneado', sim: '#simular', idx: '#indice', meta: '#metadados' }[b.dataset.mode] || location.pathname + location.search);
     setMode(b.dataset.mode);
   }));
   setMode(mode);
@@ -3230,6 +3267,108 @@ ${spine.join('\n')}
     else { const v = Math.round(+e.target.value); if (v >= 1 && v <= idx.n) { if (v - 1 !== it.page) idxDo(() => { it.page = v - 1; }); idxShow(v - 1); } else e.target.value = it.page + 1; }
   });
 
+  // ---------- Metadados: ver, editar, buscar no Open Library (src/meta.js) e salvar ----------
+  const MT = { title: 'mtTitle', authors: 'mtAuthors', publisher: 'mtPublisher', date: 'mtDate', isbn: 'mtIsbn', lang: 'mtLang', series: 'mtSeries', seriesIndex: 'mtSeriesIdx', tags: 'mtTags', description: 'mtDesc' };
+  const mtGet = () => {
+    const v = Object.fromEntries(Object.entries(MT).map(([k, id]) => [k, $(id).value.trim()]));
+    v.authors = v.authors.split(/\s*;\s*/).filter(Boolean); v.tags = v.tags.split(/\s*,\s*/).filter(Boolean);
+    return v;
+  };
+  const mtPut = v => { for (const [k, id] of Object.entries(MT)) $(id).value = Array.isArray(v[k]) ? v[k].join(k === 'tags' ? ', ' : '; ') : v[k] || ''; };
+  function mtCoverShow() {
+    const c = mt && (mt.newCover || mt.book.meta.cover), img = $('mtCover');
+    if (mt && mt.coverUrl) { URL.revokeObjectURL(mt.coverUrl); mt.coverUrl = null; }
+    if (!c) { img.hidden = true; $('mtCoverInfo').textContent = 'Sem capa.'; return; }
+    mt.coverUrl = URL.createObjectURL(new Blob([c.bytes], { type: c.type })); img.src = mt.coverUrl; img.hidden = false;
+    $('mtCoverInfo').textContent = mt.newCover ? `Capa nova do Open Library${c.w ? ` (${c.w}×${c.h})` : ''}: entra no lugar da antiga ao salvar.` : 'Capa atual do livro.';
+  }
+  function mtReset() {
+    if (mt) { if (mt.abort) mt.abort.abort(); if (mt.coverUrl) URL.revokeObjectURL(mt.coverUrl); }
+    mt = null; $('optMeta').querySelectorAll('input, textarea').forEach(e => { e.value = ''; }); $('mtRes').innerHTML = '';   // roda antes das constantes acima existirem (setMode inicial) $('mtCover').hidden = true; $('mtCoverInfo').textContent = 'Sem capa.';
+    $('mtInfo').textContent = 'Escolha um EPUB ou PDF para ver e editar os metadados.';
+    $('optMeta').querySelectorAll('input, textarea, button').forEach(e => e.disabled = true);
+  }
+  function mtState() {
+    if (!mt) return;
+    $('optMeta').querySelectorAll('input, textarea, button').forEach(e => e.disabled = busy);
+    $('mtUndo').disabled = busy || !mt.hist.length;
+    $('optMeta').querySelectorAll('.mt-epub').forEach(e => e.hidden = mt.book.kind !== 'epub');
+  }
+  async function mtLoad(file) {
+    mtReset();
+    try {
+      const b = await Meta.open(new Uint8Array(await file.arrayBuffer()), file.name);
+      mt = { file, book: b, hist: [], newCover: null, cands: [] };
+      mtPut(b.meta); mtCoverShow(); mtState();
+      $('mtInfo').textContent = `${file.name} · ${b.kind.toUpperCase()}`;
+    } catch (e) { say(e.message || String(e), true); }
+  }
+  function mtRender() {
+    const ul = $('mtRes'); ul.innerHTML = '';
+    if (!mt || !mt.cands.length) return;
+    for (const [k, c] of mt.cands.entries()) {
+      const li = document.createElement('li'), d = document.createElement('div'), b = document.createElement('button');
+      if (c.thumb) { const im = document.createElement('img'); im.src = c.thumb; im.alt = ''; im.loading = 'lazy'; li.appendChild(im); } else { const x = document.createElement('div'); x.className = 'sem'; li.appendChild(x); }
+      d.className = 'd'; const t = document.createElement('b'); t.textContent = c.title + (c.subtitle ? ': ' + c.subtitle : ''); const i = document.createElement('span');
+      i.textContent = [c.authors.slice(0, 3).join(', '), c.date, c.publisher, c.isbn && 'ISBN ' + c.isbn].filter(Boolean).join(' · ');
+      d.append(t, i); b.type = 'button'; b.className = 'sm'; b.textContent = 'Usar este'; b.dataset.k = k;
+      li.append(d, b); ul.appendChild(li);
+    }
+    const f = document.createElement('li'); f.className = 'fonte'; f.innerHTML = 'Dados e capas do <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> (licença aberta).'; ul.appendChild(f);
+  }
+  async function mtSearch() {
+    if (!mt || busy) return;
+    const v = mtGet(), o = mt;
+    busy = true; mtState(); say('Buscando no Open Library…'); o.abort = new AbortController();
+    try {
+      o.cands = (await Meta.search({ isbn: v.isbn, title: v.title, authors: v.authors, lang: v.lang }, { signal: o.abort.signal })).slice(0, 6);
+      if (mt !== o) return;
+      mtRender();
+      say(o.cands.length ? `${o.cands.length} ${o.cands.length > 1 ? 'resultados' : 'resultado'} no Open Library: toque em “Usar este” no certo.` : 'Nada encontrado no Open Library. Confira o título e o autor (ou o ISBN) e busque de novo.', !o.cands.length);
+    } catch (e) { if (mt === o) say('Erro: ' + (e.message || e), true); }
+    finally { busy = false; if (mt === o) mtState(); }
+  }
+  async function mtUse(k) {
+    const o = mt, c = o && o.cands[k]; if (!c || busy) return;
+    busy = true; mtState(); say('Buscando descrição e capa…'); o.abort = new AbortController();
+    try {
+      const [full, cov] = await Promise.all([Meta.details(c, { signal: o.abort.signal }), Meta.cover(c.cover, { signal: o.abort.signal })]);
+      if (mt !== o) return;
+      o.hist.push({ v: mtGet(), newCover: o.newCover });
+      // como no Calibre: o que a fonte traz entra; o que ela não traz fica como estava
+      const v = mtGet(), title = full.title + (full.subtitle ? ' - ' + full.subtitle : '');
+      mtPut({ ...v, title: title || v.title, authors: full.authors.length ? full.authors : v.authors, publisher: full.publisher || v.publisher, date: full.date || v.date,
+        isbn: full.isbn || v.isbn, lang: v.lang && full.lang && v.lang.toLowerCase().startsWith(full.lang) ? v.lang : full.lang || v.lang,   // "pt-BR" não vira "pt"
+        tags: full.tags.length ? full.tags : v.tags, description: full.description || v.description });
+      if (cov && o.book.kind === 'epub') o.newCover = cov;
+      mtCoverShow();
+      say(`Preenchido com o Open Library${cov ? ', com capa' : ', sem capa'}. Confira e salve.`);
+    } catch (e) { if (mt === o) say('Erro: ' + (e.message || e), true); }
+    finally { busy = false; if (mt === o) mtState(); }
+  }
+  async function mtSave() {
+    const o = mt; if (!o || busy) return;
+    busy = true; mtState(); outBtns.style.display = 'none';
+    try {
+      say('Gravando…'); await tick();
+      const v = mtGet();
+      if (v.isbn && !Meta.isbn13(v.isbn)) throw new Error(`o ISBN "${v.isbn}" não é válido (confira os dígitos).`);
+      const data = await Meta.save(o.book, { ...v, newCover: o.newCover });
+      const ext = o.book.kind, mime = ext === 'pdf' ? 'application/pdf' : 'application/epub+zip';
+      const name = makeName(v.title || stem(o.file), v.authors) + '.' + ext;
+      results.forEach(r => URL.revokeObjectURL(r.url)); results = [];
+      results.push({ name, url: URL.createObjectURL(new Blob([data], { type: mime })), bytes: data, mime });
+      await showOut({ ext, mime, many: ext === 'pdf' ? 'PDFs' : 'EPUBs' });
+      say(`Pronto: ${name}. Toque em baixar.`);
+      o.book = await Meta.open(data, name); o.newCover = null; mtCoverShow();   // o salvo vira a base de novas edições
+    } catch (e) { console.error(e); say('Erro: ' + (e.message || e), true); }
+    finally { busy = false; if (mt === o) mtState(); }
+  }
+  $('mtSearch').addEventListener('click', mtSearch);
+  $('mtSave').addEventListener('click', mtSave);
+  $('mtRes').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) mtUse(+b.dataset.k); });
+  $('mtUndo').addEventListener('click', () => { const h = mt && mt.hist.pop(); if (!h) return; mtPut(h.v); mt.newCover = h.newCover; mtCoverShow(); mtState(); say(''); });
+
   // aba Simular: abre o arquivo escolhido direto no simulador
   async function runSim() {
     const f = files[0]; if (!f) return;
@@ -3241,7 +3380,7 @@ ${spine.join('\n')}
   // funções internas, para os testes automáticos (tests/unidade); o app não usa
   window.__converterias = { titleCase, cleanAuthors, makeName, resolve, buildBlocks, modeOf, composeAcc, guessLang, findGutters, clusterLines,
     buildRuns, finalizeLines, pageLines, drawnShapes, figureRegions, shapeVec, shapeCorr, kindOf, guessTitle, pdfOutline, writeOutline, jpegInfo,
-    imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs, simOpen, sim, get idx() { return idx; } };
+    imageForPdf, pageRange, rotated, stem, xesc, uuid, initPdfjs, simOpen, sim, get idx() { return idx; }, get mt() { return mt; } };
   // nova versão: o service worker novo assume a página (skipWaiting + claim); se já havia um antes, avisa e recarrega no toque
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     const hadSW = !!navigator.serviceWorker.controller;
