@@ -2,7 +2,7 @@
 """Gera o index.html (arquivo único, offline) a partir de src/template.html + vendor/.
 
 Com --check, não grava nada: só confere se o index.html do repositório está igual ao que seria gerado."""
-import base64, json, pathlib, sys
+import base64, json, pathlib, re, sys
 
 root = pathlib.Path(__file__).parent
 v = root / "vendor"
@@ -27,6 +27,8 @@ html = html.replace("/*KFX*/", esc((root / "src" / "kfx.js").read_text(encoding=
 html = html.replace("/*MANGA*/", esc((root / "src" / "manga.js").read_text(encoding="utf-8")))
 html = html.replace("/*KINDLE*/", esc((root / "src" / "kindle.js").read_text(encoding="utf-8")))
 html = html.replace("/*META*/", esc((root / "src" / "meta.js").read_text(encoding="utf-8")))
+# partes do script principal (src/app/*.js): coladas no lugar de cada /*@app/x.js*/, dentro do mesmo escopo
+html = re.sub(r"/\*@(app/[a-z0-9-]+\.js)\*/", lambda m: esc((root / "src" / m[1]).read_text(encoding="utf-8")).rstrip("\n").lstrip(" "), html)
 html = html.replace("/*FONTS*/{}", json.dumps(fonts))
 
 out = root / "index.html"

@@ -239,13 +239,18 @@ Mangá e HQ no Kindle não são texto que reflui: são **uma imagem por página*
 python3 build.py   # gera index.html a partir de src/template.html + vendor/
 ```
 
-- `src/template.html`: interface e o código dos conversores.
-- `src/azw3.js`: gravador de AZW3 (embutido no `index.html` pelo `build.py`).
-- `src/kfx.js`: gravador de KFX, com o codificador de Amazon Ion binário (idem).
-- `src/kindle.js`: simulador de Kindle (leitor de AZW3 e KFX para a tela de pré-visualização).
-- `src/manga.js`: PDF → páginas de mangá (cinza, aparo, partição de páginas duplas) e o EPUB de layout fixo que vira AZW3 (idem).
+Como as peças se encaixam está em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md); as regras para quem for mexer no código (pessoa ou IA), em [`CLAUDE.md`](CLAUDE.md).
+
+- `src/template.html`: a página (HTML, CSS) e a casca do script: abas, lista de arquivos, lote e botões de baixar.
+- `src/app/*.js`: o resto do script principal, uma parte por assunto (`epub2pdf`, `pdf-linhas`, `pdf2epub`, `escaneado`, `juntar`, `imagens`, `organizar`, `simulador`, `indice`, `metadados`, `comum`), coladas pelo `build.py` dentro do mesmo escopo.
+- `src/azw3.js`, `src/kfx.js`: gravadores de AZW3 e de KFX (com o codificador de Amazon Ion binário).
+- `src/manga.js`: PDF/CBZ → páginas de mangá e o EPUB de layout fixo que vira AZW3.
+- `src/kindle.js`: leitor de AZW3, KFX, EPUB e PDF para o simulador de Kindle.
+- `src/meta.js`: metadados de EPUB/PDF e a busca no Open Library.
+- `src/ocr.js`, `src/spell.js`: livro a partir do OCR e o corretor com dicionário Hunspell.
 - `vendor/`: bibliotecas e fontes embutidas (ver [THIRD_PARTY.md](THIRD_PARTY.md)).
-- `sw.js` e `manifest.webmanifest`: PWA (cache offline).
+- `sw.js` e `manifest.webmanifest`: PWA (cache offline e aviso de nova versão).
+- `tools/scan2pdf.py`: PDF escaneado → PDF pela linha de comando.
 
 Para publicar: *Settings → Pages → Deploy from a branch → `main` / root*.
 
@@ -264,10 +269,10 @@ npm run coverage                  # os mesmos testes, medindo a cobertura: relat
 
 Tudo roda no Chromium de verdade, com o app servido por HTTP (como no GitHub Pages). Os arquivos de entrada são gerados na hora pelos próprios testes (nada de binário no repositório), e as saídas são abertas e conferidas por leitores escritos à parte, a partir dos formatos: o AZW3 é remontado como o Kindle faz (texto PalmDOC, esqueleto + fragmentos, sumário, recursos), o KFX é decodificado do Amazon Ion. Qualquer erro de JavaScript na página faz o teste falhar.
 
-- `tests/e2e/`: ponta a ponta, um arquivo por aba (`epub-pdf`, `pdf-epub`, `pdf-epub-detalhes`, `juntar`, `imagens`, `organizar`, `kindle`, `manga`, `ocr`), `simulador` (que também salva capturas de cada aparelho em `simulador/`; no CI, artefato **simulador**) e `interface` (abas e endereços `#`, cancelamento, compartilhar, PWA offline, `build.py --check`).
+- `tests/e2e/`: ponta a ponta, um arquivo por aba (`epub-pdf`, `pdf-epub`, `pdf-epub-detalhes`, `juntar`, `imagens`, `organizar`, `kindle`, `manga`, `ocr`, `indice`, `metadados`), `simulador` (que também salva capturas de cada aparelho em `simulador/`; no CI, artefato **simulador**) e `interface` (abas e endereços `#`, cancelamento, compartilhar, PWA offline, `build.py --check`).
 - `tests/unidade/`: unitários das funções internas, no navegador: `app` (as de `src/template.html`, expostas em `window.__converterias`), `azw3`, `kfx`, `manga`, `ocr` e `spell`.
 - `tests/apoio/`: `arquivos.js` (geradores: EPUB 2/3, PDFs de livro, escaneados, com senha, quadrinhos, imagens), `leitores.js` (PDF, EPUB, AZW3, KFX) e `app.js` (abrir aba, converter, baixar).
-- `tests/cobertura/`: a medição de cobertura, que carrega os scripts de `src/` como arquivos (`cobertura.html`, gerado e ignorado pelo git).
+- `tests/cobertura/`: a medição de cobertura, que carrega os scripts de `src/` como arquivos (`cobertura.html`, gerado e ignorado pelo git); o script principal leva um source map, então o relatório mostra cada parte de `src/app/` no próprio arquivo.
 - Testes marcados com `test.fixme` descrevem falhas conhecidas que ainda não foram corrigidas: quando alguém corrigir, é só trocar por `test`.
 
 O GitHub Actions (`.github/workflows/testes.yml`) roda tudo em cada push na `main` e em cada pull request, e num segundo job mede a cobertura (resumo na própria execução, relatório completo nos artefatos). Ao corrigir um bug, vale acrescentar um teste que o reproduz.

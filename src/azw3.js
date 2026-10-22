@@ -1,4 +1,6 @@
 // EPUB -> AZW3 (KF8): gravador escrito a partir do formato do arquivo (PalmDB + MOBI 8 + índices SKEL/FRAG/NCX).
+// Uso: await Azw3.convert(bytesDoEpub, { say, tick, fixed? }) -> { bytes, title, authors, sections, ... };
+// fixed = { w, h, rtl, bookType, regionMag } gera o layout fixo do mangá (ver src/manga.js). _readEpub é reaproveitado pelo src/kfx.js.
 const Azw3 = (() => {
   const enc = new TextEncoder(), dec = new TextDecoder();
   const B32 = '0123456789ABCDEFGHIJKLMNOPQRSTUV';
