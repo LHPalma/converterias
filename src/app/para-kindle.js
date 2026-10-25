@@ -24,6 +24,7 @@
       say, tick,
       dev: Manga.deviceById($('mDev').value),
       rtl: $('mDir').value === 'rtl',
+      cbz: mFmt() === 'cbz',
       panels: $('mPanels').value === 'auto' ? 'auto' : +$('mPanels').value,
       split: $('mSplit').checked,
       crop: $('mCrop').checked,

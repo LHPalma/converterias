@@ -468,6 +468,23 @@ const Manga = (() => {
     return `\n<div id="PV">\n${areas}\n</div>\n${views}`;
   }
 
+  // CBZ: as páginas já no tamanho da tela, numeradas para a ordem de leitura sair certa em qualquer leitor
+  // (os nomes são ordenados como texto, então o zero à esquerda é o que segura 10 depois de 9).
+  // O ComicInfo.xml (padrão do ComicRack) leva título, autor e o sentido de leitura; o KOReader não o usa,
+  // mas Calibre, Komga e outros sim.
+  function buildCbz(pages, meta) {
+    const zip = new JSZip();
+    const xml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const digits = Math.max(3, String(pages.length).length);
+    pages.forEach((p, i) => zip.file(`${String(i + 1).padStart(digits, '0')}.${p.mime === 'image/png' ? 'png' : 'jpg'}`, p.bytes, { compression: 'STORE' }));
+    zip.file('ComicInfo.xml',
+      `<?xml version="1.0" encoding="utf-8"?>\n<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n` +
+      `  <Title>${xml(meta.title)}</Title>\n` + (meta.author ? `  <Writer>${xml(meta.author)}</Writer>\n` : '') +
+      `  <PageCount>${pages.length}</PageCount>\n  <LanguageISO>${xml(meta.lang)}</LanguageISO>\n` +
+      `  <Manga>${meta.rtl ? 'YesAndRightToLeft' : 'No'}</Manga>\n</ComicInfo>`);
+    return zip.generateAsync({ type: 'uint8array' });
+  }
+
   // EPUB de layout fixo: uma página por XHTML, a imagem posicionada em pixels
   function buildEpub(pages, dev, meta) {
     const zip = new JSZip();
@@ -549,7 +566,7 @@ const Manga = (() => {
     const dev = opt.dev || DEVICES[0];
     const o = { rtl: opt.rtl !== false, split: !!opt.split, crop: opt.crop !== false, level: !!opt.level, eink: opt.eink !== false,
                 fmt: opt.png ? 'image/png' : 'image/jpeg', quality: 0.9,
-                panels: opt.panels === 'auto' || opt.panels === 2 || opt.panels === 4 ? opt.panels : 0 };
+                panels: !opt.cbz && (opt.panels === 'auto' || opt.panels === 2 || opt.panels === 4) ? opt.panels : 0 };   // CBZ não marca painéis: nem gasta tempo detectando
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     const src = bytes[0] === 0x50 && bytes[1] === 0x4b ? await openCbz(bytes, say, tick) : await openPdf(bytes, say, tick);
@@ -582,6 +599,10 @@ const Manga = (() => {
       const looksLikeText = judged.length >= 5 && median < 0.3 || src.count >= 3 && src.textPages >= src.count * 0.6;
 
       const meta = { title, author, lang: opt.lang || 'pt', rtl: o.rtl, uuid, panels: o.panels };
+      if (opt.cbz) {
+        return { bytes: await buildCbz(pages, meta), title, authors: author ? [author] : [], pages: pages.length,
+                 device: dev, panels: 0, detected: 0, looksLikeText };
+      }
       const epub = await buildEpub(pages, dev, meta);
 
       const a = await Azw3.convert(epub, { say, tick,
