@@ -25,14 +25,14 @@
       return part.replace(core, out);
     }).join('-')).join(' ');
   }
+  const isSuffix = p => /^(jr|sr|filho|neto|júnior|junior)\.?$/i.test(p);   // "Silva, Jr." é um nome só, não "Sobrenome, Nome"
   function cleanAuthors(raw) {   // um campo pode trazer vários autores; devolve lista de nomes
     const out = [];
     for (const piece of raw.replace(/\s+/g, ' ').trim().split(/\s*[;&/|+]\s*|\s+(?:and|e)\s+(?=\p{Lu})/u)) {
       if (!piece) continue;
       const parts = piece.split(/\s*,\s*/).filter(Boolean);
-      const jr = p => /^(jr|sr|filho|neto|júnior|junior)\.?$/i.test(p);
-      if (parts.length === 2 && parts[0].split(' ').length === 1 && !jr(parts[1])) out.push(parts[1] + ' ' + parts[0]);   // "Sobrenome, Nome"
-      else if (parts.length > 1 && !parts.slice(1).some(jr)) out.push(...parts);                                         // lista separada por vírgula
+      if (parts.length === 2 && parts[0].split(' ').length === 1 && !isSuffix(parts[1])) out.push(parts[1] + ' ' + parts[0]);   // "Sobrenome, Nome"
+      else if (parts.length > 1 && !parts.slice(1).some(isSuffix)) out.push(...parts);                                         // lista separada por vírgula
       else out.push(piece);
     }
     return out.map(titleCase);
