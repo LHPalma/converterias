@@ -162,6 +162,11 @@
   </div>
 
   <div class="card" id="optManga" hidden>
+    <label for="mFmt">Formato</label>
+    <select id="mFmt">
+      <option value="azw3">AZW3 — leitor da Amazon (com Panel View)</option>
+      <option value="cbz">CBZ — KOReader e outros leitores de quadrinhos</option>
+    </select>
     <label for="mDev">Aparelho (define o tamanho das páginas)</label>
     <select id="mDev"></select>
     <label for="mDir">Sentido de leitura</label>
@@ -409,8 +414,10 @@
               get note() { return kFmt() === 'kfx'
                 ? 'Gera KFX, o formato atual da Amazon: copie o arquivo para a pasta "documents" do Kindle (por cabo USB). Dá tipografia melhor e funciona nos Kindles de 2015 para cá; em aparelhos antigos, prefira o AZW3. Sai só o texto estruturado e as imagens — sem CSS do EPUB e sem fontes embutidas. EPUB vira KFX direto; PDF vira EPUB primeiro (com as opções acima) e depois KFX. O KFX não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Nome do arquivo: Título em Title Case - Subtítulo (Autor).'
                 : 'Gera AZW3 (KF8), o formato que o Kindle abre por cabo USB: copie o arquivo para a pasta "documents" do Kindle. EPUB vira AZW3 direto; PDF vira EPUB primeiro (com as opções acima) e depois AZW3. O AZW3 não serve para o Send to Kindle (e-mail): nesse caso envie o EPUB. Fontes embutidas no EPUB são descartadas (o Kindle usa as dele). Nome do arquivo: Título em Title Case - Subtítulo (Autor).'; } },
-    manga: { pick: 'Toque para escolher um ou mais .pdf ou .cbz', accept: '.pdf,.cbz,.cbr,application/pdf,application/vnd.comicbook+zip', ext: 'azw3', mime: 'application/vnd.amazon.ebook', many: 'mangás',
-             note: 'Transforma cada página do PDF numa página de imagem e gera um AZW3 de layout fixo — o formato que a Amazon usa para mangá e HQ: copie o arquivo para a pasta "documents" do Kindle. As páginas saem em tons de cinza, no tamanho exato da tela do aparelho escolhido, e as margens brancas da digitalização são aparadas. Páginas duplas podem ser partidas em duas, na ordem de leitura. Serve para PDF de página escaneada e para CBZ (as imagens vão na ordem dos nomes; o título vem do ComicInfo.xml, se houver); PDF de texto corrido fica melhor em Para Kindle. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
+    manga: { pick: 'Toque para escolher um ou mais .pdf ou .cbz', accept: '.pdf,.cbz,.cbr,application/pdf,application/vnd.comicbook+zip', many: 'mangás',
+             get ext() { return mFmt(); },
+             get mime() { return mFmt() === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/vnd.amazon.ebook'; },
+             note: 'Transforma cada página do PDF numa página de imagem e gera um AZW3 de layout fixo — o formato que a Amazon usa para mangá e HQ: copie o arquivo para a pasta "documents" do Kindle. Se o seu leitor é o KOReader (que não abre AZW3), escolha CBZ: as mesmas páginas, no tamanho da tela, num ZIP de imagens (sem painéis marcados; o KOReader amplia o quadro com o toque longo). As páginas saem em tons de cinza, no tamanho exato da tela do aparelho escolhido, e as margens brancas da digitalização são aparadas. Páginas duplas podem ser partidas em duas, na ordem de leitura. Serve para PDF de página escaneada e para CBZ (as imagens vão na ordem dos nomes; o título vem do ComicInfo.xml, se houver); PDF de texto corrido fica melhor em Para Kindle. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     ocr: { pick: 'Toque para escolher um ou mais PDFs escaneados', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
            note: 'Faz OCR do PDF escaneado no próprio aparelho e gera um PDF com a mesma diagramação do EPUB → PDF: parágrafos, capítulos (pelos cabeçalhos das páginas), ilustrações como imagem e capa. Na primeira vez baixa o motor de OCR (cerca de 6 MB), que depois fica guardado para uso offline. É lento (alguns segundos por página; no celular, bem mais) e consome memória: prefira um livro por vez. Erros de reconhecimento continuam no texto. Nome do arquivo: Título em Title Case - Subtítulo (Autor).' },
     org: { pick: 'Toque para escolher um .pdf', accept: '.pdf,application/pdf', ext: 'pdf', mime: 'application/pdf', many: 'PDFs',
@@ -426,9 +433,11 @@
   };
   const syncOcrOpts = () => { $('optOCR').hidden = !(mode === 'ocr' || ((mode === 'p2e' || mode === 'kindle') && $('pOcr').checked)); };
   const kFmt = () => (($('kFmt') || {}).value || 'azw3');
+  const mFmt = () => (($('mFmt') || {}).value || 'azw3');
   const ordered = m => m === 'merge' || m === 'i2p';   // listas em que a ordem importa
   let mode = location.hash === '#pdf-epub' ? 'p2e' : location.hash === '#juntar' ? 'merge' : location.hash === '#imagens-pdf' ? 'i2p' : location.hash === '#pdf-imagens' ? 'p2i' : location.hash === '#organizar' ? 'org' : location.hash === '#kindle' ? 'kindle' : location.hash === '#manga' ? 'manga' : location.hash === '#escaneado' ? 'ocr' : location.hash === '#simular' ? 'sim' : location.hash === '#indice' ? 'idx' : location.hash === '#metadados' ? 'meta' : 'e2p';
   Manga.DEVICES.forEach((d, i) => $('mDev').add(new Option(d.label, d.id, !i, !i)));
+  $('mFmt').addEventListener('change', () => { $('mPanels').disabled = mFmt() === 'cbz'; });   // CBZ não leva painéis marcados
 
   let cancelled = false;
   const say = (msg, err) => { statusEl.textContent = msg; statusEl.className = err ? 'err' : ''; };
@@ -616,7 +625,7 @@
     try { await navigator.share({ files: results.map(r => new File([r.bytes], r.name, { type: r.mime })) }); }
     catch (e) { if (e.name !== 'AbortError') say('Não foi possível compartilhar: ' + (e.message || e), true); }
   });
-  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, { 'application/pdf': `PDFs (${results.length} livros).zip`, 'application/epub+zip': `EPUBs (${results.length} livros).zip`, 'application/vnd.amazon.ebook': `AZW3 (${results.length} livros).zip`, 'application/x-kfx': `KFX (${results.length} livros).zip` }[results[0].mime] || `Imagens (${results.length}).zip`); });
+  zipBtn.addEventListener('click', () => { if (zipUrl) save(zipUrl, { 'application/pdf': `PDFs (${results.length} livros).zip`, 'application/epub+zip': `EPUBs (${results.length} livros).zip`, 'application/vnd.amazon.ebook': `AZW3 (${results.length} livros).zip`, 'application/vnd.comicbook+zip': `CBZ (${results.length} livros).zip`, 'application/x-kfx': `KFX (${results.length} livros).zip` }[results[0].mime] || `Imagens (${results.length}).zip`); });
   const simBtn = $('simBtn');
   simBtn.addEventListener('click', () => { if (results[0]) simOpen(results[0].bytes, results[0].name); });
   sepBtn.addEventListener('click', async () => {

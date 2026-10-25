@@ -2,6 +2,7 @@
 const { test, expect, open, run } = require('../apoio/app');
 const A = require('../apoio/arquivos');
 const { readAzw3 } = require('../apoio/leitores');
+const JSZip = require('../../vendor/jszip.min.js');
 
 const imgSize = b => b[0] === 0x89 ? [b.readUInt32BE(16), b.readUInt32BE(20)] : (() => { for (let i = 2; i < b.length;) { const m = b[i + 1], len = b.readUInt16BE(i + 2); if (m >= 0xc0 && m <= 0xc2) return [b.readUInt16BE(i + 7), b.readUInt16BE(i + 5)]; i += 2 + len; } })();
 const manga = async (page, buf, setup, name = 'volume 1.pdf') => {
@@ -162,6 +163,40 @@ test('CBZ: imagens na ordem natural dos nomes (com pastas), lixo do macOS fora, 
   expect(k.files[3]).not.toContain('app-amzn-magnify');              // p10: ilustração inteira, por último
   for (const r of pages(k)) { const [w, h] = imgSize(r); expect(w <= 1072 && h <= 1448 && (w === 1072 || h === 1448)).toBe(true); }
   await expect(page.locator('#list .s.ok')).toHaveText(/✓ 4 páginas · /);
+});
+
+// saída CBZ (para o KOReader, que não abre AZW3): as mesmas páginas, num ZIP de imagens numeradas
+const cbzOut = async (page, files, setup) => {
+  const [out] = await run(page, 'manga', files, { setup: async p => { await p.click('.tabs button[data-mode="manga"]'); await p.selectOption('#mFmt', 'cbz'); if (setup) await setup(p); } });
+  const zip = await JSZip.loadAsync(out.buf);
+  return { ...out, zip, names: Object.keys(zip.files), info: await zip.file('ComicInfo.xml').async('string') };
+};
+
+test('saída CBZ: páginas numeradas no tamanho da tela, ComicInfo com o sentido de leitura, sem painéis', async ({ page }) => {
+  const comic = await A.comicPage(page);
+  const out = await cbzOut(page, [A.file('volume 1.pdf', await A.makeImagePdf([comic, comic, comic], { size: [400, 600], title: 'Título Interno', author: 'Mangaká' }), 'application/pdf')]);
+  expect(out.name).toBe('Título Interno (Mangaká).cbz');
+  expect(out.names.sort()).toEqual(['001.jpg', '002.jpg', '003.jpg', 'ComicInfo.xml']);
+  for (const n of out.names.filter(n => n !== 'ComicInfo.xml')) {
+    const [w, h] = imgSize(Buffer.from(await out.zip.file(n).async('uint8array')));
+    expect(w <= 1072 && h <= 1448 && (w === 1072 || h === 1448)).toBe(true);
+  }
+  expect(out.info).toContain('<Title>Título Interno</Title>');
+  expect(out.info).toContain('<Writer>Mangaká</Writer>');
+  expect(out.info).toContain('<PageCount>3</PageCount>');
+  expect(out.info).toContain('<Manga>YesAndRightToLeft</Manga>');
+  await expect(page.locator('#mPanels')).toBeDisabled();
+  await expect(page.locator('#list .s.ok')).toHaveText(/✓ 3 páginas · /);
+});
+
+test('saída CBZ: página dupla partida na ordem de leitura, esquerda para a direita e PNG', async ({ page }) => {
+  const dbl = await A.comicPage(page, { w: 1600, h: 1100, double: true });
+  const out = await cbzOut(page, [A.file('dupla.cbz', await A.makeCbz({ '1.png': dbl, '2.png': A.ICON_BIG }), 'application/vnd.comicbook+zip')], async p => {
+    await p.check('#mSplit'); await p.selectOption('#mDir', 'ltr'); await p.check('#mPng');
+  });
+  expect(out.name).toBe('Dupla.cbz');
+  expect(out.names.sort()).toEqual(['001.png', '002.png', '003.png', 'ComicInfo.xml']);   // a dupla vira duas, e a segunda imagem é a terceira
+  expect(out.info).toContain('<Manga>No</Manga>');
 });
 
 test('CBZ sem ComicInfo: título pelo nome do arquivo; .cbr que é ZIP por dentro também entra', async ({ page }) => {

@@ -25,7 +25,7 @@ O app é **um arquivo só**, o `index.html`, que roda 100% no navegador, offline
 |---|---|
 | `azw3.js` → `Azw3` | `convert(epub, { say, tick, fixed? })` → AZW3 (KF8): PalmDOC, esqueleto + fragmentos, índices, fontes, layout fixo |
 | `kfx.js` → `Kfx` | `convert(epub, { say, tick })` → KFX: contêiner `CONT` + Amazon Ion; lê o EPUB com `Azw3._readEpub`. O formato está documentado em [`FORMATO-KFX.md`](FORMATO-KFX.md) |
-| `manga.js` → `Manga` | `convert(arquivo PDF ou CBZ, opções)` → AZW3 de layout fixo: páginas em cinza com 16 tons, aparo, páginas duplas, Panel View |
+| `manga.js` → `Manga` | `convert(arquivo PDF ou CBZ, opções)` → AZW3 de layout fixo (páginas em cinza com 16 tons, aparo, páginas duplas, Panel View) ou, com `cbz: true`, um CBZ das mesmas páginas, para o KOReader |
 | `kindle.js` → `Kindle` | `open(bytes)` → livro para o simulador: AZW3, KFX, EPUB ou PDF, em páginas ou capítulos |
 | `meta.js` → `Meta` | `open`/`save` dos metadados de EPUB/PDF; `search`/`details`/`cover` no Open Library |
 | `ocr.js` → `Ocr` | linhas do Tesseract → livro (parágrafos, capítulos, figuras) → EPUB |
@@ -68,7 +68,7 @@ EPUB → PDF        epubToPdf: OPF + spine → buildBlocks → diagramação (pd
 PDF → EPUB        pdfToEpub → pdfDocToEpub: pdf.js → pageLines (linhas) → blocos → capítulos (marcadores, sumário impresso ou títulos) → EPUB (JSZip)
 PDF escaneado     pdfToEpub com OCR (ou aba Escaneado): página → Tesseract → Ocr.Book → EPUB → (Escaneado → PDF) epubToPdf
 Para Kindle       EPUB → Azw3/Kfx.convert;  PDF → pdfToEpub → EPUB → Azw3/Kfx.convert
-Mangá             PDF (pdf.js) ou CBZ (JSZip) → páginas em cinza no tamanho da tela → EPUB de layout fixo → Azw3.convert({ fixed })
+Mangá             PDF (pdf.js) ou CBZ (JSZip) → páginas em cinza no tamanho da tela → EPUB de layout fixo → Azw3.convert({ fixed })   (com cbz: páginas → ZIP numerado + ComicInfo.xml)
 Juntar            PDFs: pdf-lib copyPages + um marcador por arquivo;  EPUBs: um EPUB com os capítulos de todos e sumário por livro
 Índice do PDF     pdfOutline (o que existe) ou pdfDocToEpub(opt.index) → editor → writeOutline
 Metadados         Meta.open → editor (+ Meta.search no Open Library) → Meta.save (OPF reescrito / Info do PDF)

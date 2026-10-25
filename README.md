@@ -16,7 +16,7 @@ Funciona no Chrome do Android e no PC. Novos conversores vão sendo adicionados 
 | **PDF → Imagens** (PNG ou JPEG, uma por página) | disponível |
 | **Organizar PDF** (reordenar, girar, duplicar e remover páginas) | disponível |
 | **Para Kindle** (AZW3 ou KFX, de EPUB ou de PDF, para copiar por cabo USB) | disponível |
-| **Mangá** (PDF escaneado ou CBZ → AZW3 de layout fixo, como a Amazon faz com HQ) | disponível |
+| **Mangá** (PDF escaneado ou CBZ → AZW3 de layout fixo, como a Amazon faz com HQ, ou CBZ para o KOReader) | disponível |
 | **Escaneado → PDF** (OCR no navegador, no padrão do EPUB → PDF) | disponível |
 | **Índice do PDF** (marcadores gerados do sumário impresso ou dos títulos, com editor manual) | disponível |
 | **Metadados** (ver e editar os do EPUB/PDF; buscar no Open Library, com capa) | disponível |
@@ -205,8 +205,10 @@ Depois de converter, cada AZW3, KFX, EPUB ou PDF gerado também ganha **Simular 
 Mangá e HQ no Kindle não são texto que reflui: são **uma imagem por página**, num AZW3 de **layout fixo** — é assim que a Amazon entrega quadrinhos. Esta aba faz isso a partir de um PDF escaneado ou de um **CBZ** (o ZIP de imagens em que muito mangá circula).
 
 1. Toque em **Mangá** (ou abra com `#manga`) e escolha um ou mais `.pdf` ou `.cbz`.
-2. Escolha o **aparelho** (define o tamanho exato das páginas), o **sentido de leitura** e o que fazer com as páginas duplas.
-3. **Converter** e copie os `.azw3` para a pasta `documents` do Kindle.
+2. Escolha o **formato** (AZW3 para o leitor da Amazon, CBZ para o KOReader), o **aparelho** (define o tamanho exato das páginas), o **sentido de leitura** e o que fazer com as páginas duplas.
+3. **Converter** e copie os `.azw3` (ou `.cbz`) para a pasta `documents` do Kindle.
+
+- **CBZ para o KOReader:** o KOReader não abre AZW3 (nem o `.azw3` de mangá, que é de layout fixo). Com o formato **CBZ**, as mesmas páginas (cinza, aparadas, no tamanho da tela, páginas duplas partidas) saem num ZIP de imagens numeradas (`001.jpg`, `002.jpg`…), com um `ComicInfo.xml` que leva título, autor e o sentido de leitura. O CBZ não marca painéis, então a opção **Painéis** fica desligada. O KOReader tem o zoom de painel dele: no CBZ já vem ligado e, ao segurar o dedo sobre um quadro, ele amplia aquele quadro. Para ler da direita para a esquerda, inverta o sentido da virada de página nas opções do KOReader.
 
 - **CBZ:** as imagens entram na ordem dos nomes (com números em ordem natural: `2.jpg` antes de `10.jpg`, inclusive dentro de pastas), ignorando o lixo do macOS (`__MACOSX`, arquivos ocultos); imagem quebrada é pulada. Título e autor vêm do `ComicInfo.xml` (Series, Number, Title, Writer), se houver; senão, do nome do arquivo. O **CBR** (compactado em RAR) ainda não: extraia e compacte as imagens em ZIP, ou converta para PDF.
 - **O que ele faz com cada página:** rasteriza (o PDF) ou reduz (a imagem do CBZ), converte para tons de cinza (o e-ink não mostra cor), apara a moldura branca da digitalização, redimensiona para a tela do aparelho sem distorcer, centraliza o que sobra e reduz aos **16 tons de cinza** que a tela e-ink mostra (0, 17, 34 … 255, como o Kindle Comic Converter; sem pontilhado, que com JPEG vira ruído e borra as retículas — dá para desligar). Páginas duplas (em paisagem) podem ser partidas em duas, já na ordem de leitura — na leitura da direita para a esquerda, a metade direita vem primeiro.
